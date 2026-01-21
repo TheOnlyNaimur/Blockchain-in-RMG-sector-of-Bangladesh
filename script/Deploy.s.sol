@@ -2,20 +2,20 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
-import "../src/RMGSupplyChain.sol";
+import "../src/Contract.sol";
 
-contract DeployRMGSupplyChain is Script {
-    function run() external returns (RMGSupplyChain) {
+contract DeployContract is Script {
+    function run() external returns (Contract) {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         
         vm.startBroadcast(deployerPrivateKey);
         
-        RMGSupplyChain supplyChain = new RMGSupplyChain();
+        Contract deployedContract = new Contract();
         
-        console.log("RMGSupplyChain deployed to:", address(supplyChain));
+        console.log("Contract deployed to:", address(deployedContract));
         
         vm.stopBroadcast();
         
-        return supplyChain;
+        return deployedContract;
     }
 }
