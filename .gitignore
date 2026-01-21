@@ -1,0 +1,25 @@
+# Foundry
+cache/
+out/
+broadcast/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+*.log
+
+# Frontend
+frontend/dist/
+frontend/node_modules/
