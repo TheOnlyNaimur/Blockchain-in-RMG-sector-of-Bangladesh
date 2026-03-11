@@ -3,16 +3,30 @@ pragma solidity ^0.8.0;
 
 contract MyContract {
 
+    address  certifier;
+    address  qualitychecker;
+    address  freightForwarder;
+    address  exportCustoms;
+    address  importCustoms;
 
-    // constructor (address _add){
-    //     certifier = _add;
-    // }
-
-    address  certifier = 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2; //here i define it in default who gives company approval also green factory approval;
-    address  qualitychecker = 0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db ; //quality check by thirdparty after batch production
-    address  freightForwarder = 0x03C6FcED478cBbC9a4FAB34eF9f40767739D1Ff7;
-    address  exportCustoms = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8; 
-    address  importCustoms = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
+    constructor(
+        address _certifier,
+        address _qualitychecker,
+        address _freightForwarder,
+        address _exportCustoms,
+        address _importCustoms
+    ) {
+        require(_certifier != address(0), "certifier cannot be zero");
+        require(_qualitychecker != address(0), "qualitychecker cannot be zero");
+        require(_freightForwarder != address(0), "freightForwarder cannot be zero");
+        require(_exportCustoms != address(0), "exportCustoms cannot be zero");
+        require(_importCustoms != address(0), "importCustoms cannot be zero");
+        certifier = _certifier;
+        qualitychecker = _qualitychecker;
+        freightForwarder = _freightForwarder;
+        exportCustoms = _exportCustoms;
+        importCustoms = _importCustoms;
+    }
 
 
     enum applicationstatus { Pending, approved, rejected }
