@@ -8,28 +8,74 @@ const { ethers } = require("ethers");
 
 /**
  * POST /api/shipments
- * Body: { privateKey, batchId, freightForwarderAddress }
- * Seller requests shipment for a quality-approved batch.
+ * Body: { data, signature, userAddress }
+ * data: { batchId, freightForwarderAddress }
+ * Seller requests shipment for a quality-approved batch (verified via signature).
  */
 async function requestShipment(req, res, next) {
   try {
-    const { privateKey, batchId } = req.body;
-    // freightForwarderAddress defaults to the env-configured account if not supplied
-    const freightForwarderAddress =
-      req.body.freightForwarderAddress || process.env.FREIGHT_FORWARDER_ADDRESS;
+    const { data, signature, userAddress } = req.body;
 
-    if (!privateKey || !batchId) {
+    if (!data || !signature || !userAddress) {
       return res.status(400).json({
         success: false,
-        error: "privateKey and batchId are required",
+        error: "data, signature, and userAddress are required",
       });
     }
 
-    const contract = getWriteContract(privateKey);
-    const tx = await contract.shipReq(BigInt(batchId), freightForwarderAddress);
-    const receipt = await tx.wait();
+    const { batchId } = data;
+    const freightForwarderAddress =
+      data.freightForwarderAddress || process.env.FREIGHT_FORWARDER_ADDRESS;
 
-    // Parse ShipmentRequested event to get the new shipId
+    if (!batchId) {
+      return res.status(400).json({
+        success: false,
+        error: "batchId is required in data",
+      });
+    }
+
+    // Step 1: Verify signature
+    const message = JSON.stringify(data);
+    let recoveredAddress;
+    try {
+      recoveredAddress = ethers.verifyMessage(message, signature);
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid signature",
+      });
+    }
+
+    if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+      return res.status(401).json({
+        success: false,
+        error: "Signature does not match user address",
+      });
+    }
+
+    // Step 2: Hash the data
+    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
+
+    // Step 3: Call contract with backend private key
+    if (!process.env.BACKEND_PRIVATE_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: "Backend private key not configured",
+      });
+    }
+
+    const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
+    const tx = await contract.shipReq(BigInt(batchId), freightForwarderAddress);
+    const receipt = await tx.wait(1, 60000);
+
+    if (!receipt || receipt.status !== 1) {
+      return res.status(500).json({
+        success: false,
+        error: "Transaction failed or reverted",
+      });
+    }
+
+    // Step 5: Parse event and save record
     const iface = contract.interface;
     let shipId = null;
     for (const log of receipt.logs) {
@@ -46,7 +92,9 @@ async function requestShipment(req, res, next) {
       shipId,
       batchId,
       freightForwarderAddress,
-      sellerAddress: new ethers.Wallet(privateKey).address,
+      sellerAddress: userAddress,
+      signature,
+      dataHash,
     });
 
     res.status(201).json({
@@ -77,7 +125,15 @@ async function uploadDocument(req, res, next) {
         .json({ success: false, error: "docHash is required" });
     }
 
-    const contract = getRoleContract("freightforwarder");
+    const { privateKey } = req.body;
+    if (!privateKey) {
+      return res.status(400).json({
+        success: false,
+        error: "privateKey is required",
+      });
+    }
+
+    const contract = getRoleContract(privateKey);
     const tx = await contract.docUpload(BigInt(shipId), docHash);
     const receipt = await tx.wait();
 
@@ -106,8 +162,15 @@ async function uploadDocument(req, res, next) {
 async function exportVerify(req, res, next) {
   try {
     const { shipId } = req.params;
+    const { privateKey } = req.body;
+    if (!privateKey) {
+      return res.status(400).json({
+        success: false,
+        error: "privateKey is required",
+      });
+    }
 
-    const contract = getRoleContract("exportcustoms");
+    const contract = getRoleContract(privateKey);
     const tx = await contract.expVerify(BigInt(shipId));
     const receipt = await tx.wait();
 
@@ -135,8 +198,15 @@ async function exportVerify(req, res, next) {
 async function importVerify(req, res, next) {
   try {
     const { shipId } = req.params;
+    const { privateKey } = req.body;
+    if (!privateKey) {
+      return res.status(400).json({
+        success: false,
+        error: "privateKey is required",
+      });
+    }
 
-    const contract = getRoleContract("importcustoms");
+    const contract = getRoleContract(privateKey);
     const tx = await contract.impVerify(BigInt(shipId));
     const receipt = await tx.wait();
 

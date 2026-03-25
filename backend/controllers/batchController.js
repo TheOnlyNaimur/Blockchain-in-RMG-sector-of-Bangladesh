@@ -8,24 +8,71 @@ const { ethers } = require("ethers");
 
 /**
  * POST /api/batches
- * Body: { privateKey, orderId, productInfo }
- * Seller/manufacturer records a production batch linked to an accepted order.
+ * Body: { data, signature, userAddress }
+ * data: { orderId, productInfo }
+ * Seller/manufacturer records a production batch linked to an accepted order (verified via signature).
  */
 async function createBatch(req, res, next) {
   try {
-    const { privateKey, orderId, productInfo } = req.body;
-    if (!privateKey || !orderId || !productInfo) {
+    const { data, signature, userAddress } = req.body;
+
+    if (!data || !signature || !userAddress) {
       return res.status(400).json({
         success: false,
-        error: "privateKey, orderId and productInfo are required",
+        error: "data, signature, and userAddress are required",
       });
     }
 
-    const contract = getWriteContract(privateKey);
-    const tx = await contract.batchCreate(BigInt(orderId), productInfo);
-    const receipt = await tx.wait();
+    const { orderId, productInfo } = data;
+    if (!orderId || !productInfo) {
+      return res.status(400).json({
+        success: false,
+        error: "orderId and productInfo are required in data",
+      });
+    }
 
-    // Parse BatchCreated event to get the new batchId
+    // Step 1: Verify signature
+    const message = JSON.stringify(data);
+    let recoveredAddress;
+    try {
+      recoveredAddress = ethers.verifyMessage(message, signature);
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid signature",
+      });
+    }
+
+    if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+      return res.status(401).json({
+        success: false,
+        error: "Signature does not match user address",
+      });
+    }
+
+    // Step 2: Hash the data
+    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
+
+    // Step 3: Call contract with backend private key
+    if (!process.env.BACKEND_PRIVATE_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: "Backend private key not configured",
+      });
+    }
+
+    const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
+    const tx = await contract.batchCreate(BigInt(orderId), productInfo);
+    const receipt = await tx.wait(1, 60000);
+
+    if (!receipt || receipt.status !== 1) {
+      return res.status(500).json({
+        success: false,
+        error: "Transaction failed or reverted",
+      });
+    }
+
+    // Step 5: Parse event and save record
     const iface = contract.interface;
     let batchId = null;
     for (const log of receipt.logs) {
@@ -42,7 +89,9 @@ async function createBatch(req, res, next) {
       batchId,
       orderId,
       productInfo,
-      sellerAddress: new ethers.Wallet(privateKey).address,
+      sellerAddress: userAddress,
+      signature,
+      dataHash,
     });
 
     res.status(201).json({
@@ -73,7 +122,15 @@ async function qualityCheck(req, res, next) {
       });
     }
 
-    const contract = getRoleContract("qualitychecker");
+    const { privateKey } = req.body;
+    if (!privateKey) {
+      return res.status(400).json({
+        success: false,
+        error: "privateKey is required",
+      });
+    }
+
+    const contract = getRoleContract(privateKey);
     const tx = await contract.bqualitycheck(BigInt(batchId), Boolean(status));
     const receipt = await tx.wait();
 

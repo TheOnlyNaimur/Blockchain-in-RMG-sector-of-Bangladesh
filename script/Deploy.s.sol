@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
-import "../src/Contract.sol";
+import "../src/MyContract.sol";
 
 contract DeployContract is Script {
     function run() external returns (MyContract) {
@@ -13,6 +13,7 @@ contract DeployContract is Script {
         address freightForwarder = vm.envAddress("FREIGHT_FORWARDER_ADDRESS");
         address exportCustoms    = vm.envAddress("EXPORT_CUSTOMS_ADDRESS");
         address importCustoms    = vm.envAddress("IMPORT_CUSTOMS_ADDRESS");
+        address usdt             = vm.envAddress("USDT_ADDRESS");
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -21,7 +22,8 @@ contract DeployContract is Script {
             qualitychecker,
             freightForwarder,
             exportCustoms,
-            importCustoms
+            importCustoms,
+            usdt
         );
 
         console.log("Contract deployed to:", address(deployedContract));
@@ -30,6 +32,7 @@ contract DeployContract is Script {
         console.log("  freightForwarder :", freightForwarder);
         console.log("  exportCustoms    :", exportCustoms);
         console.log("  importCustoms    :", importCustoms);
+        console.log("  usdt             :", usdt);
 
         vm.stopBroadcast();
 

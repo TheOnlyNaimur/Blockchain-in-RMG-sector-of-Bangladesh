@@ -16,21 +16,38 @@ contract MyContract {
     address immutable exportCustoms;
     address immutable importCustoms;
 
-    // ─── Sepolia Testnet USDT ─────────────────────────────────────────────────
-    // Aave Sepolia mock USDT: 0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0
-    // (6 decimals — same as mainnet USDT)
+    // ─── USDT Token ───────────────────────────────────────────────────────────
+    // ERC-20 token address (6 decimals) - passed at deployment
     IERC20 immutable usdt;
 
     // ─── Constructor ──────────────────────────────────────────────────────────
-    constructor() {
-        certifier            = 0xAb8483F64d9C6d1EcF9b849Ae677dD3315835cb2;
-        qualitychecker       = 0x4B20993Bc481177ec7E8f571ceCaE8A9e22C02db;
-        freightForwarderRole = 0x03C6FcED478cBbC9a4FAB34eF9f40767739D1Ff7;
-        exportCustoms        = 0x70997970C51812dc3A010C7d01b50e0d17dc79C8;
-        importCustoms        = 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC;
+    // @param _certifier Address with certifier role
+    // @param _qualitychecker Address with quality checker role
+    // @param _freightForwarder Address with freight forwarder role
+    // @param _exportCustoms Address with export customs role
+    // @param _importCustoms Address with import customs role
+    // @param _usdt Address of the USDT token contract (6 decimals)
+    constructor(
+        address _certifier,
+        address _qualitychecker,
+        address _freightForwarder,
+        address _exportCustoms,
+        address _importCustoms,
+        address _usdt
+    ) {
+        require(_certifier != address(0), "Invalid certifier address");
+        require(_qualitychecker != address(0), "Invalid qualitychecker address");
+        require(_freightForwarder != address(0), "Invalid freightForwarder address");
+        require(_exportCustoms != address(0), "Invalid exportCustoms address");
+        require(_importCustoms != address(0), "Invalid importCustoms address");
+        require(_usdt != address(0), "Invalid USDT address");
 
-        // Aave Sepolia mock USDT (6 decimals)
-        usdt = IERC20(0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0);//this is a demo address not real
+        certifier            = _certifier;
+        qualitychecker       = _qualitychecker;
+        freightForwarderRole = _freightForwarder;
+        exportCustoms        = _exportCustoms;
+        importCustoms        = _importCustoms;
+        usdt                 = IERC20(_usdt);
     }
 
     // ─── Custom Errors ────────────────────────────────────────────────────────

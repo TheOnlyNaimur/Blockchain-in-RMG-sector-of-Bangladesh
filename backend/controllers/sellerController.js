@@ -1,39 +1,101 @@
 const {
-  getWriteContract,
   getReadContract,
   getRoleContract,
+  getWriteContract,
 } = require("../config/contract");
 const saveRecord = require("../utils/saveRecord");
 const { ethers } = require("ethers");
 
 /**
  * POST /api/sellers/register
- * Body: { privateKey, name, tinid, number }
- * Registers a new manufacturer/seller on-chain.
+ * Body: { data, signature, userAddress }
+ * data: { name, tinid, number } - the form data the user filled
+ * signature: the digital signature from MetaMask signMessage
+ * userAddress: the public address of the seller
+ *
+ * Flow:
+ * 1. Verify signature (proves user signed the data)
+ * 2. Hash the data for on-chain storage
+ * 3. Call contract.registerSeller() from backend
+ * 4. Wait for confirmation
+ * 5. Store record in database
  */
 async function registerSeller(req, res, next) {
   try {
-    const { privateKey, name, tinid, number } = req.body;
-    if (!privateKey || !name || !tinid || !number) {
+    const { data, signature, userAddress } = req.body;
+
+    // Validate inputs
+    if (!data || !signature || !userAddress) {
       return res.status(400).json({
         success: false,
-        error: "privateKey, name, tinid and number are required",
+        error: "data, signature, and userAddress are required",
       });
     }
 
-    const contract = getWriteContract(privateKey);
+    const { name, tinid, number } = data;
+    if (!name || tinid === undefined || !number) {
+      return res.status(400).json({
+        success: false,
+        error: "name, tinid, and number are required in data",
+      });
+    }
+
+    // Step 1: Reconstruct the message and verify signature
+    const message = JSON.stringify(data);
+    let recoveredAddress;
+    try {
+      recoveredAddress = ethers.verifyMessage(message, signature);
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid signature",
+      });
+    }
+
+    // Verify that the signature came from the claimed user address
+    if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+      return res.status(401).json({
+        success: false,
+        error: "Signature does not match user address",
+      });
+    }
+
+    // Step 2: Hash the data for on-chain reference
+    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
+
+    // Step 3: Call the smart contract from the backend
+    if (!process.env.BACKEND_PRIVATE_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: "Backend private key not configured",
+      });
+    }
+
+    const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
     const tx = await contract.registrationseller(
       name,
       BigInt(tinid),
       BigInt(number),
     );
-    const receipt = await tx.wait();
 
+    // Step 4: Wait for transaction confirmation
+    const receipt = await tx.wait(1, 60000); // 1 confirmation, 60 second timeout
+
+    if (!receipt || receipt.status !== 1) {
+      return res.status(500).json({
+        success: false,
+        error: "Transaction failed or reverted",
+      });
+    }
+
+    // Step 5: Save metadata to database
     await saveRecord("SELLER_REGISTERED", receipt, {
-      sellerAddress: new ethers.Wallet(privateKey).address,
+      sellerAddress: userAddress,
       name,
       tinid: String(tinid),
       number: String(number),
+      signature,
+      dataHash,
     });
 
     res.json({
@@ -63,7 +125,15 @@ async function approveSeller(req, res, next) {
       });
     }
 
-    const contract = getRoleContract("certifier");
+    const { privateKey } = req.body;
+    if (!privateKey) {
+      return res.status(400).json({
+        success: false,
+        error: "privateKey is required",
+      });
+    }
+
+    const contract = getRoleContract(privateKey);
     const tx = await contract.approveseller(sellerAddress, BigInt(assign));
     const receipt = await tx.wait();
     const statusLabel = Number(assign) === 1 ? "approved" : "rejected";

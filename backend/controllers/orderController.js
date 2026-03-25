@@ -4,24 +4,73 @@ const saveRecord = require("../utils/saveRecord");
 
 /**
  * POST /api/orders
- * Body: { privateKey, details, buyerAddress }
- * Approved seller creates a purchase order for a specific buyer.
+ * Body: { data, signature, userAddress }
+ * data: { details, buyerAddress }
+ * Approved seller creates a purchase order for a specific buyer (verified via signature).
  */
 async function createOrder(req, res, next) {
   try {
-    const { privateKey, details, buyerAddress } = req.body;
-    if (!privateKey || !details || !buyerAddress) {
+    const { data, signature, userAddress } = req.body;
+
+    // Validate inputs
+    if (!data || !signature || !userAddress) {
       return res.status(400).json({
         success: false,
-        error: "privateKey, details and buyerAddress are required",
+        error: "data, signature, and userAddress are required",
       });
     }
 
-    const contract = getWriteContract(privateKey);
-    const tx = await contract.createdealforbuyers(details, buyerAddress);
-    const receipt = await tx.wait();
+    const { details, buyerAddress } = data;
+    if (!details || !buyerAddress) {
+      return res.status(400).json({
+        success: false,
+        error: "details and buyerAddress are required in data",
+      });
+    }
 
-    // Parse the OrderCreated event to get the new orderId
+    // Step 1: Verify signature
+    const message = JSON.stringify(data);
+    let recoveredAddress;
+    try {
+      recoveredAddress = ethers.verifyMessage(message, signature);
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid signature",
+      });
+    }
+
+    if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+      return res.status(401).json({
+        success: false,
+        error: "Signature does not match user address",
+      });
+    }
+
+    // Step 2: Hash the data
+    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
+
+    // Step 3: Call the contract with backend private key
+    if (!process.env.BACKEND_PRIVATE_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: "Backend private key not configured",
+      });
+    }
+
+    const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
+    const tx = await contract.createdealforbuyers(details, buyerAddress);
+    const receipt = await tx.wait(1, 60000);
+
+    // Step 4: Verify receipt
+    if (!receipt || receipt.status !== 1) {
+      return res.status(500).json({
+        success: false,
+        error: "Transaction failed or reverted",
+      });
+    }
+
+    // Step 5: Parse event and save record
     const iface = contract.interface;
     let orderId = null;
     for (const log of receipt.logs) {
@@ -36,9 +85,11 @@ async function createOrder(req, res, next) {
 
     await saveRecord("ORDER_CREATED", receipt, {
       orderId,
-      sellerAddress: new ethers.Wallet(privateKey).address,
+      sellerAddress: userAddress,
       buyerAddress,
       details,
+      signature,
+      dataHash,
     });
 
     res.status(201).json({
@@ -55,26 +106,68 @@ async function createOrder(req, res, next) {
 
 /**
  * POST /api/orders/:orderId/accept
- * Body: { privateKey }
- * Registered buyer accepts the order identified by orderId.
+ * Body: { data, signature, userAddress }
+ * data: { orderId }
+ * Registered buyer accepts the order (verified via signature).
  */
 async function acceptOrder(req, res, next) {
   try {
     const { orderId } = req.params;
-    const { privateKey } = req.body;
-    if (!privateKey) {
-      return res
-        .status(400)
-        .json({ success: false, error: "privateKey is required" });
+    const { data, signature, userAddress } = req.body;
+
+    if (!data || !signature || !userAddress) {
+      return res.status(400).json({
+        success: false,
+        error: "data, signature, and userAddress are required",
+      });
     }
 
-    const contract = getWriteContract(privateKey);
+    // Step 1: Verify signature
+    const message = JSON.stringify(data);
+    let recoveredAddress;
+    try {
+      recoveredAddress = ethers.verifyMessage(message, signature);
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid signature",
+      });
+    }
+
+    if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+      return res.status(401).json({
+        success: false,
+        error: "Signature does not match user address",
+      });
+    }
+
+    // Step 2: Hash the data
+    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
+
+    // Step 3: Call contract with backend private key
+    if (!process.env.BACKEND_PRIVATE_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: "Backend private key not configured",
+      });
+    }
+
+    const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
     const tx = await contract.acceptorder(BigInt(orderId));
-    const receipt = await tx.wait();
+    const receipt = await tx.wait(1, 60000);
+
+    if (!receipt || receipt.status !== 1) {
+      return res.status(500).json({
+        success: false,
+        error: "Transaction failed or reverted",
+      });
+    }
 
     await saveRecord("ORDER_ACCEPTED", receipt, {
       orderId,
-      buyerAddress: new ethers.Wallet(privateKey).address,
+      buyerAddress: userAddress,
+      signature,
+      dataHash,
     });
 
     res.json({
@@ -90,32 +183,83 @@ async function acceptOrder(req, res, next) {
 
 /**
  * POST /api/orders/:orderId/pay
- * Body: { privateKey, sellerAddress, amount }  (amount in wei)
- * Buyer releases ETH payment to the seller after delivery.
+ * Body: { data, signature, userAddress }
+ * data: { sellerAddress, amount }
+ * Buyer releases payment to the seller after delivery (verified via signature).
  */
 async function payOrder(req, res, next) {
   try {
     const { orderId } = req.params;
-    const { privateKey, sellerAddress, amount } = req.body;
-    if (!privateKey || !sellerAddress || !amount) {
+    const { data, signature, userAddress } = req.body;
+
+    if (!data || !signature || !userAddress) {
       return res.status(400).json({
         success: false,
-        error: "privateKey, sellerAddress and amount (wei) are required",
+        error: "data, signature, and userAddress are required",
       });
     }
 
-    const contract = getWriteContract(privateKey);
-    const tx = await contract.pay(sellerAddress, BigInt(amount), {
-      value: BigInt(amount),
-    });
-    const receipt = await tx.wait();
+    const { sellerAddress, amount } = data;
+    if (!sellerAddress || !amount) {
+      return res.status(400).json({
+        success: false,
+        error: "sellerAddress and amount are required in data",
+      });
+    }
+
+    // Step 1: Verify signature
+    const message = JSON.stringify(data);
+    let recoveredAddress;
+    try {
+      recoveredAddress = ethers.verifyMessage(message, signature);
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid signature",
+      });
+    }
+
+    if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+      return res.status(401).json({
+        success: false,
+        error: "Signature does not match user address",
+      });
+    }
+
+    // Step 2: Hash the data
+    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
+
+    // Step 3: Call contract with backend private key
+    if (!process.env.BACKEND_PRIVATE_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: "Backend private key not configured",
+      });
+    }
+
+    const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
+    const tx = await contract.pay(
+      sellerAddress,
+      BigInt(amount),
+      BigInt(orderId),
+    );
+    const receipt = await tx.wait(1, 60000);
+
+    if (!receipt || receipt.status !== 1) {
+      return res.status(500).json({
+        success: false,
+        error: "Transaction failed or reverted",
+      });
+    }
 
     await saveRecord("ORDER_PAID", receipt, {
       orderId,
-      buyerAddress: new ethers.Wallet(privateKey).address,
+      buyerAddress: userAddress,
       sellerAddress,
       amountWei: String(amount),
       amountEth: ethers.formatEther(amount),
+      signature,
+      dataHash,
     });
 
     res.json({
