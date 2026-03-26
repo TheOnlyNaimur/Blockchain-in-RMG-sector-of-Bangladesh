@@ -17,11 +17,10 @@ export default function SellerDashboard() {
   const {
     execute: createBatch,
     loading: creatingBatch,
-    error: batchError,
   } = useBatchCreation();
-  const { execute: createOrder, loading: creatingOrder } = useOrderCreation();
+  const { execute: createOrder } = useOrderCreation();
   const { execute: requestShipment, loading: requestingShipment } = useShipmentRequest();
-  const { data: allOrdersRaw, loading: ordersLoading, refetch: refetchOrders } = useOrdersFetching();
+  const { data: allOrdersRaw, refetch: refetchOrders } = useOrdersFetching();
   const allOrders = allOrdersRaw ?? [];
   
   const [orders, setOrders] = useState([]);

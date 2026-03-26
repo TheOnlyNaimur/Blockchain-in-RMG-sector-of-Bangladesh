@@ -17,14 +17,12 @@ export default function BuyerDashboard() {
   const {
     execute: acceptOrder,
     loading: acceptingOrder,
-    error: acceptError,
   } = useOrderAcceptance();
   const {
     execute: payOrder,
     loading: payingOrder,
-    error: payError,
   } = useOrderPayment();
-  const { data: allOrders = [], loading: ordersLoading, refetch: refetchOrders } = useOrdersFetching();
+  const { data: allOrders = [], refetch: refetchOrders } = useOrdersFetching();
 
   const [orders, setOrders] = useState([]);
   const [amountToEscrow, setAmountToEscrow] = useState("");

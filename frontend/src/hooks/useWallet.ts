@@ -2,7 +2,6 @@ import { useAccount, useConnect, useDisconnect } from "wagmi";
 import { useEffect, useCallback } from "react";
 import {
   signMessage,
-  getUserAddress,
   createSignedRequest,
 } from "../utils/signing";
 

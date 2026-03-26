@@ -32,7 +32,7 @@ export function useBatchCreation() {
  * Note: Quality check still uses role-based authentication (role-holder's wallet)
  */
 export function useBatchQualityCheck() {
-  const { createSignedPayload, isConnected } = useWallet();
+  const { isConnected } = useWallet();
 
   return useAsync<{ txHash: string }, { batchId: string; status: boolean }>(
     createAsyncFn(async (params) => {
