@@ -6,44 +6,11 @@ import StatCard from "../components/ui/StatCard";
 import Toast from "../components/ui/Toast";
 import { useUser } from "../contexts/UserContext";
 import { useWallet } from "../hooks/useWallet";
-import { useOrderAcceptance, useOrderPayment } from "../hooks/useOrders";
-
-const defaultOrders = [
-  {
-    id: "#ORD-23-001",
-    seller: "Shenzhen Elec.",
-    initials: "SE",
-    details: "5000x Microchips",
-    status: "Pending Approval",
-    statusColor: "yellow",
-    amount: "$50,000.00",
-    gradient: "from-blue-500 to-cyan-400",
-  },
-  {
-    id: "#ORD-23-002",
-    seller: "Berlin Auto Parts",
-    initials: "BA",
-    details: "200x Brake Systems",
-    status: "Awaiting Payment",
-    statusColor: "blue",
-    amount: "$12,000.00",
-    gradient: "from-green-500 to-lime-400",
-  },
-  {
-    id: "#ORD-23-003",
-    seller: "Tokyo Steel Co.",
-    initials: "TS",
-    details: "50T Steel Beams",
-    status: "In Transit",
-    statusColor: "purple",
-    amount: "$125,000.00",
-    gradient: "from-purple-500 to-pink-400",
-  },
-];
+import { useOrderAcceptance, useOrderPayment, useOrdersFetching } from "../hooks";
 
 export default function BuyerDashboard() {
   const { userProfile } = useUser();
-  const { isConnected } = useWallet();
+  const { isConnected, createSignedPayload } = useWallet();
   const {
     execute: acceptOrder,
     loading: acceptingOrder,
@@ -54,18 +21,21 @@ export default function BuyerDashboard() {
     loading: payingOrder,
     error: payError,
   } = useOrderPayment();
-  const [orders, setOrders] = useState(defaultOrders);
+  const { data: allOrders = [], loading: ordersLoading, refetch: refetchOrders } = useOrdersFetching();
+
+  const [orders, setOrders] = useState([]);
+  const [amountToEscrow, setAmountToEscrow] = useState("");
   const [showAcceptModal, setShowAcceptModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showCreateRequest, setShowCreateRequest] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [toast, setToast] = useState(null);
 
-  // Fetch orders on mount
   useEffect(() => {
-    // In a real app, fetch from API
-    // setOrders(fetchedOrders)
-  }, [userProfile]);
+    if (userProfile?.address && allOrders.length > 0) {
+      setOrders(allOrders.filter(o => o.buyer.toLowerCase() === userProfile.address.toLowerCase()));
+    }
+  }, [allOrders, userProfile]);
 
   const handleReview = (order) => {
     setSelectedOrder(order);
@@ -80,9 +50,10 @@ export default function BuyerDashboard() {
     if (!selectedOrder || !isConnected) return;
     try {
       // Call the hook with order acceptance data
+      const numericalOrderId = selectedOrder.orderId;
       const result = await acceptOrder({
-        orderId: selectedOrder.id,
-        data: { orderId: selectedOrder.id },
+        orderId: numericalOrderId,
+        data: { orderId: numericalOrderId, amount: amountToEscrow },
       });
 
       // Update order status in UI
@@ -112,10 +83,11 @@ export default function BuyerDashboard() {
     if (!selectedOrder || !isConnected) return;
     try {
       // Call the hook with payment data
+      const numericalOrderId = selectedOrder.orderId;
       const result = await payOrder({
-        orderId: selectedOrder.id,
+        orderId: numericalOrderId,
         data: {
-          sellerAddress: selectedOrder.sellerAddress || "0x" + "0".repeat(40),
+          sellerAddress: selectedOrder.seller || "0x" + "0".repeat(40),
           amount: selectedOrder.amount.replace(/[$,]/g, ""),
         },
       });
@@ -137,6 +109,55 @@ export default function BuyerDashboard() {
     } catch (err) {
       setToast({
         message: `Failed to send payment: ${err.message || "Unknown error"}`,
+        type: "error",
+        icon: "error",
+      });
+    }
+  };
+
+  const handleConfirmDelivery = async (order) => {
+    if (!isConnected) return;
+    try {
+      setToast({ message: "Confirming delivery on-chain...", type: "info", icon: "hourglass_empty" });
+
+      const numericalOrderId = order.orderId;
+      const shipId = order.shipments?.[0]?.shipId || "1"; // Prefer actual shipId, fallback to 1
+
+      const payloadData = { action: "confirm", orderId: numericalOrderId };
+      const { signature, userAddress } = await createSignedPayload(payloadData);
+
+      const response = await fetch(`http://localhost:3000/api/orders/${numericalOrderId}/confirm-delivery`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data: payloadData,
+          signature,
+          userAddress,
+          shipId,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to confirm delivery");
+      }
+
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === order.id
+            ? { ...o, status: "Delivered & Paid", statusColor: "green" }
+            : o,
+        ),
+      );
+
+      setToast({
+        message: `Delivery confirmed. Escrow released! Tx: ${data.txHash?.slice(0, 10)}...`,
+        type: "success",
+        icon: "check_circle",
+      });
+    } catch (err) {
+      setToast({
+        message: err.message,
         type: "error",
         icon: "error",
       });
@@ -206,26 +227,26 @@ export default function BuyerDashboard() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <StatCard
             label="Total Orders"
-            value="142"
-            change="+12%"
+            value={(orders || []).length.toString()}
+            change="Active"
             icon="receipt_long"
           />
           <StatCard
             label="Pending Action"
-            value="8"
-            change="+2%"
+            value={(orders || []).filter(o => o.status === "Pending" || o.status === "Accepted").length.toString()}
+            change="Action Req."
             icon="pending_actions"
           />
           <StatCard
             label="Escrow Locked"
-            value="$2.4M"
-            change="+5%"
+            value={`${(orders || []).filter(o => o.amount && o.statusColor !== "green").reduce((acc, curr) => acc + Number(curr.amount), 0)} USDT`}
+            change="Secured"
             icon="lock"
           />
           <StatCard
             label="Completed"
-            value="89"
-            change="+8%"
+            value={(orders || []).filter(o => o.statusColor === "green").length.toString()}
+            change="Delivered"
             icon="check_circle"
           />
         </div>
@@ -273,9 +294,9 @@ export default function BuyerDashboard() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div
-                          className={`w-8 h-8 rounded-full bg-gradient-to-br ${order.gradient} flex items-center justify-center text-xs font-bold text-white`}
+                          className={`w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-xs font-bold text-white`}
                         >
-                          {order.initials}
+                          {order.seller.slice(2, 4).toUpperCase()}
                         </div>
                         <span className="text-white text-sm font-medium">
                           {order.seller}
@@ -326,6 +347,27 @@ export default function BuyerDashboard() {
                             </span>{" "}
                             Review
                           </button>
+                        ) : order.statusColor === "purple" ? (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleReview(order)}
+                              className="text-text-secondary hover:text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">
+                                local_shipping
+                              </span>{" "}
+                              Track
+                            </button>
+                            <button
+                              onClick={() => handleConfirmDelivery(order)}
+                              className="bg-[#10b981] hover:bg-[#059669] text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-[#10b981]/20 transition-all flex items-center gap-1"
+                            >
+                              <span className="material-symbols-outlined text-[16px]">
+                                check_circle
+                              </span>{" "}
+                              Confirm Delivery
+                            </button>
+                          </div>
                         ) : (
                           <button
                             onClick={() => handleReview(order)}
@@ -421,9 +463,9 @@ export default function BuyerDashboard() {
                     </p>
                     <div className="flex items-center gap-2">
                       <div
-                        className={`w-6 h-6 rounded-full bg-gradient-to-br ${selectedOrder.gradient} flex items-center justify-center text-[10px] font-bold text-white`}
+                        className={`w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-[10px] font-bold text-white`}
                       >
-                        {selectedOrder.initials}
+                        {selectedOrder.seller.slice(2, 4).toUpperCase()}
                       </div>
                       <span className="text-white font-medium">
                         {selectedOrder.seller}
@@ -649,7 +691,9 @@ export default function BuyerDashboard() {
                     <input
                       className="bg-transparent border-none text-white focus:ring-0 text-lg font-mono w-full p-0"
                       type="number"
-                      defaultValue={selectedOrder.amount.replace(/[$,]/g, "")}
+                      value={amountToEscrow}
+                      onChange={(e) => setAmountToEscrow(e.target.value)}
+                      placeholder="Amount to Escrow"
                     />
                     <span className="text-text-secondary font-bold ml-2">
                       USDT
@@ -668,8 +712,12 @@ export default function BuyerDashboard() {
                   >
                     Cancel
                   </button>
-                  <button className="flex-[2] py-3 px-4 rounded-lg bg-primary text-background-dark font-bold hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20 flex items-center justify-center gap-2 group">
-                    Approve USDT
+                  <button
+                    onClick={handleAcceptOrder}
+                    disabled={acceptingOrder || !amountToEscrow}
+                    className="flex-[2] py-3 px-4 rounded-lg bg-primary text-background-dark font-bold hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20 flex items-center justify-center gap-2 group disabled:opacity-50"
+                  >
+                    {acceptingOrder ? "Approving..." : "Approve USDT"}
                     <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform text-[18px]">
                       arrow_forward
                     </span>

@@ -48,7 +48,8 @@ export default function SellerRegistration() {
         userAddress: address,
       });
 
-      setSuccessTxHash(result.data.txHash);
+      // Extract txHash safely whether nested in data or flat
+      setSuccessTxHash(result?.txHash || result?.data?.txHash || "Unknown Tx");
 
       // Store seller role for role detection
       localStorage.setItem(

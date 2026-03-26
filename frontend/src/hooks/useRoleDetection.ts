@@ -9,6 +9,7 @@ export type UserRole =
   | "freightForwarder"
   | "exportCustoms"
   | "importCustoms"
+  | "complianceChecker"
   | null;
 
 interface RoleConfig {
@@ -53,6 +54,11 @@ export function useRoleDetection() {
       role: "importCustoms",
       address: (import.meta.env.VITE_IMPORT_CUSTOMS_ADDRESS as string) || "",
       label: "Import Customs",
+    },
+    {
+      role: "complianceChecker",
+      address: (import.meta.env.VITE_COMPLIANCE_CHECKER_ADDRESS as string) || "",
+      label: "Compliance Checker",
     },
     // Note: buyers and sellers register themselves, not hardcoded addresses
   ];

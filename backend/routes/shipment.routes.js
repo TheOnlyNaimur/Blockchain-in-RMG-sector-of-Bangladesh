@@ -7,6 +7,7 @@ const {
   getShipment,
   getShipmentEvents,
 } = require("../controllers/shipmentController");
+const { upload } = require("../config/ipfs");
 
 const router = express.Router();
 
@@ -19,8 +20,8 @@ router.get("/:shipId", getShipment);
 // POST /api/shipments                         — seller requests shipment
 router.post("/", requestShipment);
 
-// POST /api/shipments/:shipId/doc             — freight forwarder uploads docs
-router.post("/:shipId/doc", uploadDocument);
+// POST /api/shipments/:shipId/doc             — freight forwarder uploads docs (multipart file)
+router.post("/:shipId/doc", upload.single("file"), uploadDocument);
 
 // POST /api/shipments/:shipId/export-verify   — export customs clears
 router.post("/:shipId/export-verify", exportVerify);

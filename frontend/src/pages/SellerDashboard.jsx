@@ -6,49 +6,7 @@ import Toast from "../components/ui/Toast";
 import { useUser } from "../contexts/UserContext";
 import { useWallet } from "../hooks/useWallet";
 import { useBatchCreation } from "../hooks/useBatches";
-
-const defaultOrders = [
-  {
-    id: "#ORD-2023-001",
-    buyer: "0x4A...b2C",
-    status: "Accepted",
-    statusColor: "green",
-    amount: "5,000.00",
-    action: "Create Batch",
-  },
-  {
-    id: "#ORD-2023-002",
-    buyer: "0x8B...e1F",
-    status: "Created",
-    statusColor: "blue",
-    amount: "2,500.00",
-    action: null,
-  },
-  {
-    id: "#ORD-2023-003",
-    buyer: "0x1C...d9A",
-    status: "Accepted",
-    statusColor: "green",
-    amount: "10,000.00",
-    action: "Create Batch",
-  },
-  {
-    id: "#ORD-2023-004",
-    buyer: "0x9E...f3D",
-    status: "Pending",
-    statusColor: "yellow",
-    amount: "1,200.00",
-    action: null,
-  },
-  {
-    id: "#ORD-2023-005",
-    buyer: "0x2F...a9C",
-    status: "Cancelled",
-    statusColor: "red",
-    amount: "0.00",
-    action: "delete",
-  },
-];
+import { useOrdersFetching, useOrderCreation } from "../hooks";
 
 export default function SellerDashboard() {
   const { userProfile } = useUser();
@@ -58,17 +16,42 @@ export default function SellerDashboard() {
     loading: creatingBatch,
     error: batchError,
   } = useBatchCreation();
-  const [orders, setOrders] = useState(defaultOrders);
+  const { execute: createOrder, loading: creatingOrder } = useOrderCreation();
+  const { data: allOrders = [], loading: ordersLoading, refetch: refetchOrders } = useOrdersFetching();
+  
+  const [orders, setOrders] = useState([]);
   const [showCreateBatch, setShowCreateBatch] = useState(false);
   const [showCertificate, setShowCertificate] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [batchOrder, setBatchOrder] = useState(null);
   const [toast, setToast] = useState(null);
 
+  // Form state
+  const [buyerAddress, setBuyerAddress] = useState("");
+  const [details, setDetails] = useState("");
+  const [hsCode, setHsCode] = useState("");
+  const [destination, setDestination] = useState("");
+
   useEffect(() => {
-    // Fetch seller orders from API
-    // setOrders(fetchedOrders)
-  }, [userProfile]);
+    if (userProfile?.address && allOrders.length > 0) {
+      setOrders(allOrders.filter(o => o.seller.toLowerCase() === userProfile.address.toLowerCase()));
+    }
+  }, [allOrders, userProfile]);
+
+  const handleSubmitOrder = async () => {
+    if (!buyerAddress || !details) return;
+    try {
+      const result = await createOrder({ buyerAddress, details, hsCode, destination });
+      setToast({ message: `Order proposed! Tx: ${result.txHash.slice(0, 10)}... ID: ${result.orderId}`, type: "success", icon: "check_circle" });
+      refetchOrders();
+      setBuyerAddress("");
+      setDetails("");
+      setHsCode("");
+      setDestination("");
+    } catch (err) {
+      setToast({ message: err.message || "Failed to create order", type: "error", icon: "error" });
+    }
+  };
 
   const handleCreateBatch = (order) => {
     setBatchOrder(order);
@@ -160,7 +143,7 @@ export default function SellerDashboard() {
               <div className="flex flex-col justify-center gap-1">
                 <div className="flex items-center gap-3">
                   <h1 className="text-white text-2xl md:text-[28px] font-bold leading-tight tracking-[-0.015em]">
-                    Acme Global Exports
+                    {userProfile?.displayName || "Blockchain Seller"}
                   </h1>
                   <span className="bg-primary/20 text-primary text-xs font-bold px-2 py-1 rounded uppercase tracking-wider border border-primary/30">
                     Approved
@@ -171,13 +154,13 @@ export default function SellerDashboard() {
                     <span className="material-symbols-outlined text-[18px]">
                       account_balance_wallet
                     </span>
-                    <span className="font-mono">0x71C...9A2</span>
+                    <span className="font-mono">{userProfile?.address ? `${userProfile.address.slice(0, 10)}...${userProfile.address.slice(-4)}` : "Unknown Wallet"}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-[18px]">
                       verified_user
                     </span>
-                    <span className="font-mono">Cert: 0x3dF...4b1</span>
+                    <span className="font-mono">Role: {userProfile?.role || "Pending"}</span>
                   </div>
                 </div>
               </div>
@@ -339,6 +322,9 @@ export default function SellerDashboard() {
                     <input
                       className="w-full bg-border-dark border-none rounded-lg py-2.5 pl-10 pr-4 text-white placeholder:text-text-secondary focus:ring-1 focus:ring-primary text-sm font-mono"
                       placeholder="0x..."
+                      value={buyerAddress}
+                      onChange={(e) => setBuyerAddress(e.target.value)}
+                      disabled={creatingOrder}
                     />
                   </div>
                 </div>
@@ -350,40 +336,53 @@ export default function SellerDashboard() {
                     className="w-full bg-border-dark border-none rounded-lg p-3 text-white placeholder:text-text-secondary focus:ring-1 focus:ring-primary text-sm resize-none"
                     placeholder="Describe the goods, quantity, and delivery terms..."
                     rows="4"
+                    value={details}
+                    onChange={(e) => setDetails(e.target.value)}
+                    disabled={creatingOrder}
                   ></textarea>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium text-white">
-                      Total Amount
+                      HS Code (Optional)
                     </label>
                     <div className="relative">
                       <input
-                        className="w-full bg-border-dark border-none rounded-lg py-2.5 pl-3 pr-12 text-white placeholder:text-text-secondary focus:ring-1 focus:ring-primary text-sm"
-                        placeholder="0.00"
-                        type="number"
+                        className="w-full bg-border-dark border-none rounded-lg py-2.5 px-3 text-white placeholder:text-text-secondary focus:ring-1 focus:ring-primary text-sm"
+                        placeholder="e.g. 6109.10"
+                        value={hsCode}
+                        onChange={(e) => setHsCode(e.target.value)}
+                        disabled={creatingOrder}
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary text-xs font-bold">
-                        USDT
-                      </span>
                     </div>
                   </div>
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium text-white">
-                      Deadline
+                      Destination (Optional)
                     </label>
                     <input
-                      className="w-full bg-border-dark border-none rounded-lg py-2.5 px-3 text-white focus:ring-1 focus:ring-primary text-sm [color-scheme:dark]"
-                      type="date"
+                      className="w-full bg-border-dark border-none rounded-lg py-2.5 px-3 text-white placeholder:text-text-secondary focus:ring-1 focus:ring-primary text-sm"
+                      placeholder="e.g. US, EU"
+                      value={destination}
+                      onChange={(e) => setDestination(e.target.value)}
+                      disabled={creatingOrder}
                     />
                   </div>
                 </div>
                 <div className="h-px bg-border-dark my-2"></div>
                 <button
-                  className="flex w-full items-center justify-center rounded-lg h-11 px-4 bg-primary hover:bg-primary-hover text-background-dark text-sm font-bold transition-colors shadow-lg shadow-primary/20"
+                  className="flex w-full items-center justify-center rounded-lg h-11 px-4 bg-primary hover:bg-primary-hover text-background-dark text-sm font-bold transition-colors shadow-lg shadow-primary/20 disabled:opacity-50"
                   type="button"
+                  onClick={handleSubmitOrder}
+                  disabled={creatingOrder || !buyerAddress || !details}
                 >
-                  Submit Order Proposal
+                  {creatingOrder ? (
+                    <span className="material-symbols-outlined animate-spin text-lg">
+                      cached
+                    </span>
+                  ) : (
+                    "Submit Order Proposal"
+                  )}
                 </button>
               </form>
               <div className="mt-6 pt-6 border-t border-border-dark">
@@ -594,7 +593,7 @@ export default function SellerDashboard() {
                     </span>
                   </div>
                   <h4 className="text-white text-xl font-bold mb-1">
-                    Acme Global Exports
+                    {userProfile?.displayName || "Blockchain Seller"}
                   </h4>
                   <p className="text-primary text-sm font-semibold mb-4">
                     Certified Seller — TradeChain Network
@@ -698,7 +697,7 @@ export default function SellerDashboard() {
                   </label>
                   <input
                     className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3"
-                    defaultValue="Acme Global Exports"
+                    defaultValue={userProfile?.displayName || ""}
                   />
                 </div>
                 <div className="flex flex-col gap-2">
@@ -707,7 +706,7 @@ export default function SellerDashboard() {
                   </label>
                   <input
                     className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3"
-                    defaultValue="admin@acmeglobal.com"
+                    defaultValue={userProfile?.email || "contact@example.com"}
                     type="email"
                   />
                 </div>
@@ -717,7 +716,7 @@ export default function SellerDashboard() {
                   </label>
                   <input
                     className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3"
-                    defaultValue="+1 (555) 123-4567"
+                    defaultValue={userProfile?.contactNumber || "+880 (123) 456-7890"}
                   />
                 </div>
                 <div className="flex flex-col gap-2">
@@ -727,7 +726,7 @@ export default function SellerDashboard() {
                   <textarea
                     className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3 resize-none"
                     rows="2"
-                    defaultValue="123 Trade Avenue, Suite 500, New York, NY 10001"
+                    defaultValue="Blockchain RMG Distributed Ledger"
                   />
                 </div>
                 <div className="flex flex-col gap-2">

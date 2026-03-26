@@ -4,66 +4,6 @@ import AppLayout from "../layouts/AppLayout";
 import Toast from "../components/ui/Toast";
 import { useShipmentDetail } from "../hooks/useShipments";
 
-const timelineItemsData = [
-  {
-    date: "Oct 24, 09:00",
-    title: "Batch Created",
-    icon: "verified_user",
-    person: "Manufacturer: ElectroCorp Ltd.",
-    desc: "Production batch #99281 initiated and logged on chain.",
-    status: "done",
-  },
-  {
-    date: "Oct 25, 14:30",
-    title: "Quality Approved",
-    icon: "engineering",
-    person: "Quality Checker: J. Doe",
-    desc: "Passed all ISO-9001 compliance checks. Certificate appended.",
-    status: "done",
-  },
-  {
-    date: "Oct 26, 08:15",
-    title: "Shipment Requested",
-    icon: "local_shipping",
-    person: "Logistics: Global Freight Inc.",
-    desc: "Carrier assigned. Pickup scheduled for Oct 27.",
-    status: "done",
-  },
-  {
-    date: "Oct 27, 11:45",
-    title: "Docs Uploaded",
-    icon: "upload_file",
-    person: "Admin: S. Smith",
-    desc: "Bill of Lading, Commercial Invoice, and Packing List uploaded to IPFS.",
-    status: "done",
-    docs: ["Invoice.pdf", "BoL.pdf"],
-  },
-  {
-    date: "In Progress",
-    title: "Export Cleared",
-    icon: "policy",
-    person: "Customs Agent: CN Authority",
-    desc: "Customs declaration submitted. Awaiting final clearance confirmation code.",
-    status: "active",
-  },
-  {
-    date: "Pending",
-    title: "Import Cleared",
-    icon: null,
-    person: null,
-    desc: "Scheduled for arrival at Rotterdam port.",
-    status: "pending",
-  },
-  {
-    date: "Pending",
-    title: "Payment Released",
-    icon: null,
-    person: null,
-    desc: "Smart contract escrow release upon import clearance.",
-    status: "pending",
-  },
-];
-
 export default function ShipmentTracking() {
   const { id } = useParams();
   const {
@@ -74,25 +14,97 @@ export default function ShipmentTracking() {
   const [showContract, setShowContract] = useState(false);
   const [toast, setToast] = useState(null);
   const [displayData, setDisplayData] = useState({
-    id: id || "SC-2023-8492",
-    from: "Shenzhen, CN",
-    to: "Rotterdam, NL",
-    updateTime: "2m ago",
+    id: id || "Pending",
+    from: "Origin Factory",
+    to: "Final Destination",
+    updateTime: "Fetching...",
   });
-  const [timelineItems, setTimelineItems] = useState(timelineItemsData);
+  const [timelineItems, setTimelineItems] = useState([]);
+
+  const getEventMeta = (type) => {
+    switch (type) {
+      case "ORDER_CREATED": return { title: "Order Created", icon: "flag", status: "done" };
+      case "BATCH_CREATED": return { title: "Production Batch", icon: "inventory_2", status: "done" };
+      case "QC_APPROVED": return { title: "Quality Check", icon: "fact_check", status: "done" };
+      case "COMPLIANCE_ISSUED": return { title: "Compliance Validated", icon: "verified_user", status: "done" };
+      case "ESCROW_DEPOSITED": return { title: "Payment Locked", icon: "lock", status: "done" };
+      case "DOCS_UPLOADED": return { title: "Docs Anchored", icon: "description", status: "done" };
+      case "EXPORT_CLEARED": return { title: "Export Cleared", icon: "flight_takeoff", status: "done" };
+      case "IMPORT_CLEARED": return { title: "Import Cleared", icon: "flight_land", status: "done" };
+      case "DELIVERY_CONFIRMED": return { title: "Delivery Confirmed", icon: "check_circle", status: "done" };
+      case "ESCROW_RELEASED": return { title: "Escrow Released", icon: "gavel", status: "done" };
+      default: return { title: "Blockchain Event", icon: "link", status: "done" };
+    }
+  };
 
   useEffect(() => {
     // Update display data when shipment loads from API
     if (shipmentData) {
       setDisplayData({
-        id: shipmentData.id || id || "SC-2023-8492",
-        from: shipmentData.currentLocation || "Origin",
-        to: shipmentData.destination || "Destination",
+        id: shipmentData.id || id || "Pending",
+        from: shipmentData.currentLocation || "Origin Factory",
+        to: shipmentData.destination || "Destination Port",
         updateTime: shipmentData.timestamp
           ? new Date(shipmentData.timestamp * 1000).toLocaleString()
-          : "2m ago",
+          : "Just now",
       });
     }
+
+    // Fetch dynamic timeline events
+    const fetchTimeline = async () => {
+      if (!id) return;
+      try {
+        const response = await fetch(`http://localhost:3000/api/records?limit=1000`);
+        const payload = await response.json();
+        if (payload.success) {
+          const lowerSearch = id.toLowerCase();
+          const filteredRecords = payload.data.filter(r => 
+            JSON.stringify(r.rawData).toLowerCase().includes(lowerSearch) || 
+            r.txHash.toLowerCase().includes(lowerSearch)
+          ).reverse();
+
+          const mappedEvents = filteredRecords.map((r) => {
+            const meta = getEventMeta(r.recordType);
+            return {
+              date: new Date(r.createdAt).toLocaleString([], {month: 'short', day: '2-digit', hour: '2-digit', minute:'2-digit'}),
+              title: meta.title,
+              icon: meta.icon,
+              person: `Signer: ${r.rawData.vendor || r.rawData.buyer || r.rawData.seller || r.rawData.issuedBy || r.rawData.uploadedBy || "Blockchain Agent"}`,
+              desc: `Tx: ${r.txHash.slice(0, 10)}... | Block: ${r.blockNumber}`,
+              status: meta.status,
+              docs: r.rawData.docsHash ? ["IPFS Hash Anchored"] : null
+            };
+          });
+          
+          if (mappedEvents.length === 0) {
+            mappedEvents.push({
+               date: "Pending",
+               title: "Awaiting Actions",
+               icon: "hourglass_empty",
+               person: "System",
+               desc: "No events recorded for this shipment yet.",
+               status: "pending"
+            });
+          } else {
+            // Push active status tracker
+            mappedEvents.push({
+               date: "Active",
+               title: "In Transit / Processing",
+               icon: "sync",
+               person: "System Tracker",
+               desc: "Awaiting final confirmation blocks on chain.",
+               status: "active"
+            });
+          }
+
+          setTimelineItems(mappedEvents);
+        }
+      } catch (err) {
+        console.error("Timeline fetch error", err);
+      }
+    };
+    
+    fetchTimeline();
   }, [shipmentData, id]);
 
   const handleExportPDF = () => {
@@ -270,9 +282,8 @@ export default function ShipmentTracking() {
                   <div>
                     <p className="text-xs text-slate-400">Origin</p>
                     <p className="text-sm font-semibold text-slate-200">
-                      Shenzhen Logistics Park
+                      {displayData.from}
                     </p>
-                    <p className="text-xs text-slate-500">Guangdong, China</p>
                   </div>
                 </li>
                 <li className="flex items-start gap-3">
@@ -280,10 +291,7 @@ export default function ShipmentTracking() {
                   <div>
                     <p className="text-xs text-slate-400">Destination</p>
                     <p className="text-sm font-semibold text-slate-200">
-                      Rotterdam Gateway
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Zuid-Holland, Netherlands
+                      {displayData.to}
                     </p>
                   </div>
                 </li>
@@ -300,9 +308,9 @@ export default function ShipmentTracking() {
             </h4>
             <div className="space-y-3">
               {[
-                ["Value", "45,200 USDC"],
-                ["Escrowed", "100%"],
-                ["Penalty", "2% / day late"],
+                ["Value", shipmentData?.amount ? `${shipmentData.amount} USDT` : "Pending"],
+                ["Escrowed", shipmentData?.escrowFunded ? "100%" : "Pending"],
+                ["Status", shipmentData?.status || "Active"],
               ].map(([label, value]) => (
                 <div
                   key={label}
@@ -315,10 +323,10 @@ export default function ShipmentTracking() {
                 </div>
               ))}
               <div className="pt-2">
-                <p className="text-xs text-slate-400 mb-1">Contract Address</p>
+                <p className="text-xs text-slate-400 mb-1">Blockchain ID</p>
                 <div className="flex items-center gap-2 bg-border-dark/50 rounded p-2">
                   <code className="text-xs text-primary truncate">
-                    0x71C...9A21
+                    {displayData.id}
                   </code>
                   <button
                     onClick={() =>
@@ -358,8 +366,7 @@ export default function ShipmentTracking() {
               account_balance_wallet
             </span>
             <span>
-              Wallet:{" "}
-              <span className="font-mono text-slate-200">0x33...8d1a</span>
+              Connected via RPC
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -367,8 +374,7 @@ export default function ShipmentTracking() {
               deployed_code
             </span>
             <span>
-              Last Block:{" "}
-              <span className="font-mono text-primary">#18,293,044</span>
+              Network Synced
             </span>
           </div>
         </div>

@@ -2,77 +2,39 @@ import { useState, useEffect } from "react";
 import AppLayout from "../layouts/AppLayout";
 import StatCard from "../components/ui/StatCard";
 import RoleGuard from "../components/RoleGuard";
-import { useBatchQualityCheck } from "../hooks";
-
-const defaultBatches = [
-  {
-    id: "#B-9021",
-    order: "ORD-5542",
-    seller: "AgroExports Ltd.",
-    initials: "AE",
-    product: "Premium Coffee Beans (Type A)",
-    qty: "5,000 KG",
-    time: "2023-10-27 09:30",
-    status: "Pending",
-    hash: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
-  },
-  {
-    id: "#B-9022",
-    order: "ORD-5543",
-    seller: "TechComp Inc.",
-    initials: "TC",
-    product: "Microchips X7 Processors",
-    qty: "10,000 Units",
-    time: "2023-10-27 10:15",
-    status: "Queued",
-    hash: "0x3E4B1F9A2C71D885EC7ab98bdef751B7401B5d6F",
-  },
-  {
-    id: "#B-9023",
-    order: "ORD-5544",
-    seller: "SteelWorks Co.",
-    initials: "SW",
-    product: "Industrial Steel Rods",
-    qty: "200 Tons",
-    time: "2023-10-27 11:00",
-    status: "Queued",
-    hash: "0x9A271C3E4B1F885EC7ab88b098defB751B7401B5",
-  },
-  {
-    id: "#B-9024",
-    order: "ORD-5545",
-    seller: "GreenValley",
-    initials: "GV",
-    product: "Organic Soybeans",
-    qty: "8,000 KG",
-    time: "2023-10-27 11:45",
-    status: "Queued",
-    hash: "0x1F28E9D4C5A6B7885EC7ab88b098defB751B7401",
-  },
-  {
-    id: "#B-9025",
-    order: "ORD-5546",
-    seller: "PharmaCare",
-    initials: "PC",
-    product: "Vaccine Batch V-22",
-    qty: "2,500 Vials",
-    time: "2023-10-27 12:30",
-    status: "Queued",
-    hash: "0x5F6G7H8I9J0K1L885EC7ab88b098defB751B7401",
-  },
-];
+import { useBatchQualityCheck, useBatchEvents } from "../hooks";
 
 export default function QCBatchReview() {
-  const [batches, setBatches] = useState(defaultBatches);
-  const [selectedBatch, setSelectedBatch] = useState(defaultBatches[0]);
+  const [batches, setBatches] = useState([]);
+  const [selectedBatch, setSelectedBatch] = useState(null);
+  const { data: batchData, refetch } = useBatchEvents();
   const { execute: qualityCheck, loading, error } = useBatchQualityCheck();
   const [successMessage, setSuccessMessage] = useState("");
   const [processingBatchId, setProcessingBatchId] = useState(null);
 
   useEffect(() => {
-    // Fetch batches pending QC from API
-    // setBatches(fetchedBatches)
-  }, []);
+    if (batchData?.created) {
+      const mapped = batchData.created.map((c) => {
+        const qualityEvent = batchData.quality?.find((q) => q.batchId === c.batchId);
+        return {
+          id: c.batchId,
+          order: c.orderId,
+          seller: batchData.seller ? `${batchData.seller.slice(0, 8)}...` : "Unknown Seller",
+          initials: "BS",
+          product: c.productInfoHash.substring(0, 10) + "...",
+          qty: "N/A",
+          time: new Date(c.timestamp?.[0] ? c.timestamp[0] * 1000 : Date.now()).toLocaleString(),
+          status: qualityEvent ? (qualityEvent.status ? "Approved" : "Rejected") : "Pending",
+          hash: c.productInfoHash,
+        };
+      });
+      mapped.sort((a, b) => Number(b.id) - Number(a.id));
+      setBatches(mapped);
+      if (mapped.length > 0 && !selectedBatch) {
+        setSelectedBatch(mapped[0]);
+      }
+    }
+  }, [batchData]);
 
   const handleApproveBatch = async () => {
     if (!selectedBatch) return;
@@ -161,7 +123,9 @@ export default function QCBatchReview() {
               </span>{" "}
               Review History
             </button>
-            <button className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-background-dark hover:bg-primary/90 transition-all">
+            <button 
+              onClick={refetch}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-background-dark hover:bg-primary/90 transition-all">
               <span className="material-symbols-outlined text-[20px]">
                 refresh
               </span>{" "}
@@ -174,21 +138,21 @@ export default function QCBatchReview() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <StatCard
             label="Pending Reviews"
-            value="12"
-            change="3 high priority"
+            value={(batches || []).filter((b) => b.status === "Pending").length.toString()}
+            change="Action Req."
             icon="pending_actions"
             changeColor="text-orange-500"
           />
           <StatCard
-            label="Approved Today"
-            value="45"
-            change="+12% vs yesterday"
+            label="Approved Total"
+            value={(batches || []).filter((b) => b.status === "Approved").length.toString()}
+            change="Verified"
             icon="check_circle"
           />
-          <StatCard label="Rejected Today" value="2" icon="cancel" />
+          <StatCard label="Total Batches" value={(batches || []).length.toString()} icon="inventory_2" />
           <StatCard
             label="Avg. Processing Time"
-            value="14m"
+            value="< 1 Sec"
             change="Optimal efficiency"
             icon="timer"
           />

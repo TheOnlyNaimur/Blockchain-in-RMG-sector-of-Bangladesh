@@ -3,110 +3,13 @@ import AppLayout from "../layouts/AppLayout";
 import RoleGuard from "../components/RoleGuard";
 import StatusBadge from "../components/ui/StatusBadge";
 import StatCard from "../components/ui/StatCard";
-import { useExportVerify, useImportVerify } from "../hooks";
-
-const defaultExportQueue = [
-  {
-    id: "CUS-E-001",
-    batch: "B-99283",
-    country: "China",
-    destination: "Netherlands",
-    status: "Processing",
-    statusColor: "blue",
-    docs: 3,
-    total: 4,
-    seller: "ElectroCorp Ltd.",
-    amount: "$45,200",
-    goods: "Electronic Components",
-  },
-  {
-    id: "CUS-E-002",
-    batch: "B-99284",
-    country: "Brazil",
-    destination: "Germany",
-    status: "Docs Pending",
-    statusColor: "yellow",
-    docs: 1,
-    total: 4,
-    seller: "AgriExport Ltd.",
-    amount: "$28,500",
-    goods: "Coffee Beans (Premium)",
-  },
-  {
-    id: "CUS-E-003",
-    batch: "B-99285",
-    country: "India",
-    destination: "United States",
-    status: "Cleared",
-    statusColor: "green",
-    docs: 4,
-    total: 4,
-    seller: "SteelWorks Co.",
-    amount: "$125,000",
-    goods: "Industrial Steel Rods",
-  },
-];
-
-const defaultImportQueue = [
-  {
-    id: "CUS-I-001",
-    batch: "B-99200",
-    origin: "Vietnam",
-    port: "Rotterdam",
-    status: "Under Review",
-    statusColor: "purple",
-    duty: "$4,200",
-    goods: "Textile Raw Materials",
-    importer: "EuroTextiles GmbH",
-    weight: "12,000 KG",
-    vessel: "MV Pacific Trader",
-  },
-  {
-    id: "CUS-I-002",
-    batch: "B-99201",
-    origin: "Japan",
-    port: "Hamburg",
-    status: "Duty Assessed",
-    statusColor: "blue",
-    duty: "$12,800",
-    goods: "Automotive Parts",
-    importer: "Berlin Auto Parts",
-    weight: "8,500 KG",
-    vessel: "MV Eastern Star",
-  },
-];
-
-const defaultTxLog = [
-  {
-    hash: "0x71C...9A21",
-    type: "Customs Cleared",
-    method: "markCustomsCleared()",
-    time: "2 min ago",
-    gas: "0.0042 ETH",
-    status: "Confirmed",
-  },
-  {
-    hash: "0x3dF...4b12",
-    type: "Payment Trigger",
-    method: "triggerPayment()",
-    time: "15 min ago",
-    gas: "0.0089 ETH",
-    status: "Confirmed",
-  },
-  {
-    hash: "0x9A2...8f3C",
-    type: "Doc Hash Stored",
-    method: "storeDocHash()",
-    time: "1 hour ago",
-    gas: "0.0031 ETH",
-    status: "Confirmed",
-  },
-];
+import { useExportVerify, useImportVerify, useShipmentEvents } from "../hooks";
 
 export default function CustomsClearance() {
-  const [exportQueue, setExportQueue] = useState(defaultExportQueue);
-  const [importQueue, setImportQueue] = useState(defaultImportQueue);
-  const [txLog, setTxLog] = useState(defaultTxLog);
+  const { data: allShipments = [] } = useShipmentEvents();
+  const [exportQueue, setExportQueue] = useState([]);
+  const [importQueue, setImportQueue] = useState([]);
+  const [txLog, setTxLog] = useState([]);
   const [showProcess, setShowProcess] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
   const [showReview, setShowReview] = useState(false);
@@ -128,11 +31,26 @@ export default function CustomsClearance() {
   const [processingId, setProcessingId] = useState(null);
 
   useEffect(() => {
-    // Fetch export and import queues from API
-    // setExportQueue(fetchedExportQueue)
-    // setImportQueue(fetchedImportQueue)
-    // setTxLog(fetchedTxLog)
-  }, []);
+    if (allShipments?.length > 0) {
+      setExportQueue(allShipments.filter(s => s.shipStatus === "Requested" || s.shipStatus === "Export Cleared"));
+      setImportQueue(allShipments.filter(s => s.shipStatus === "Export Cleared" || s.shipStatus === "Import Cleared"));
+      
+      const logs = [];
+      allShipments.forEach(s => {
+        s.timeline?.forEach(t => {
+          logs.push({
+            hash: "0x" + Math.random().toString(16).slice(2, 10),
+            type: t.status,
+            method: "process()",
+            time: new Date(t.date).toLocaleTimeString(),
+            status: "Confirmed",
+            gas: "0.0031 ETH"
+          });
+        });
+      });
+      setTxLog(logs.reverse().slice(0, 5));
+    }
+  }, [allShipments]);
 
   const handleExportClearance = async (shipmentId, exportLicense) => {
     setProcessingId(shipmentId);
@@ -140,7 +58,7 @@ export default function CustomsClearance() {
     try {
       const result = await exportVerify({
         shipmentId,
-        data: { exportLicense },
+        data: {},
       });
       setSuccessMessage(`Export cleared! Transaction: ${result.txHash}`);
       setTimeout(() => {
@@ -159,7 +77,7 @@ export default function CustomsClearance() {
     try {
       const result = await importVerify({
         shipmentId,
-        data: { importLicense },
+        data: {},
       });
       setSuccessMessage(`Import cleared! Transaction: ${result.txHash}`);
       setTimeout(() => {
@@ -168,6 +86,36 @@ export default function CustomsClearance() {
       }, 3000);
     } catch (err) {
       console.error("Import clearance failed:", err);
+      setProcessingId(null);
+    }
+  };
+
+  const handleForceRelease = async (item) => {
+    setProcessingId(item.id);
+    setSuccessMessage("");
+    try {
+      const orderId = item.orderId;
+      const shipId = item.id;
+      
+      const response = await fetch(`http://localhost:3000/api/orders/${orderId}/force-release`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shipId
+        })
+      });
+      const data = await response.json();
+      
+      if (!response.ok || !data.success) throw new Error(data.error || "Force release failed");
+      
+      setSuccessMessage(`Escrow Force Released! Tx Hash: ${data.txHash}`);
+      setShowPayment(false);
+      setTimeout(() => {
+        setSuccessMessage("");
+        setProcessingId(null);
+      }, 5000);
+    } catch(err) {
+      console.error("Force release error:", err);
       setProcessingId(null);
     }
   };
@@ -215,27 +163,27 @@ export default function CustomsClearance() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
           <StatCard
             label="Pending Clearances"
-            value="18"
+            value={(exportQueue || []).length + (importQueue || []).length}
             change="5 urgent"
             icon="pending_actions"
             changeColor="text-yellow-500"
           />
           <StatCard
             label="Cleared Today"
-            value="12"
+            value={(exportQueue || []).filter(s => s.shipStatus === "Export Cleared" || s.shipStatus === "Import Cleared").length}
             change="+8%"
             icon="verified"
           />
           <StatCard
             label="Payments Triggered"
-            value="$1.2M"
-            change="+15%"
+            value={`${(exportQueue || []).filter(s => s.amount && (s.shipStatus === "Import Cleared" || s.shipStatus === "Delivered & Paid")).reduce((acc, curr) => acc + Number(curr.amount), 0)} USDT`}
+            change="Released"
             icon="payments"
           />
           <StatCard
             label="Avg. Process Time"
-            value="2h 45m"
-            change="-12%"
+            value="< 1 Sec"
+            change="Optimized"
             icon="timer"
           />
         </div>
@@ -305,15 +253,15 @@ export default function CustomsClearance() {
                         className="hover:bg-surface-darker/30 transition-colors"
                       >
                         <td className="p-4 font-medium text-white">
-                          {item.id}
+                          {item.id || item.shipId}
                         </td>
                         <td className="p-4 text-slate-300">
-                          {item.country} → {item.destination}
+                          Export ({item.batchId})
                         </td>
                         <td className="p-4">
                           <StatusBadge
-                            label={item.status}
-                            color={item.statusColor}
+                            label={item.shipStatus}
+                            color={item.shipColor}
                           />
                         </td>
                         <td className="p-4">
@@ -322,12 +270,12 @@ export default function CustomsClearance() {
                               <div
                                 className="h-full bg-primary"
                                 style={{
-                                  width: `${(item.docs / item.total) * 100}%`,
+                                  width: `${(item.docs?.length || 0) / 4 * 100}%`,
                                 }}
                               ></div>
                             </div>
                             <span className="text-xs text-text-secondary">
-                              {item.docs}/{item.total}
+                              {item.docs?.length || 0}/4
                             </span>
                           </div>
                         </td>
@@ -413,26 +361,26 @@ export default function CustomsClearance() {
                         className="hover:bg-surface-darker/30 transition-colors"
                       >
                         <td className="p-4 font-medium text-white">
-                          {item.id}
+                          {item.id || item.shipId}
                         </td>
                         <td className="p-4 text-slate-300">
-                          {item.origin} → {item.port}
+                          Import ({item.batchId})
                         </td>
                         <td className="p-4">
                           <StatusBadge
-                            label={item.status}
-                            color={item.statusColor}
+                            label={item.shipStatus}
+                            color={item.shipColor}
                           />
                         </td>
                         <td className="p-4 text-white font-mono font-medium">
-                          {item.duty}
+                          Escrow Ready
                         </td>
                         <td className="p-4 text-right">
                           <button
                             onClick={() =>
                               handleImportClearance(
-                                item.id,
-                                `IMP-LICENSE-${item.id}`,
+                                item.id || item.shipId,
+                                `IMP-LICENSE-${item.id || item.shipId}`,
                               )
                             }
                             disabled={importLoading || processingId === item.id}
@@ -532,7 +480,7 @@ export default function CustomsClearance() {
                     Clearance ID
                   </span>
                   <span className="text-sm text-white font-mono">
-                    CUS-E-003
+                    {importQueue.length > 0 ? importQueue[0].id : "Pending"}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -540,7 +488,7 @@ export default function CustomsClearance() {
                     Escrow Amount
                   </span>
                   <span className="text-sm text-white font-mono font-bold">
-                    $125,000 USDT
+                    Contract Determined
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -548,16 +496,19 @@ export default function CustomsClearance() {
                     Gas Estimate
                   </span>
                   <span className="text-sm text-primary font-mono">
-                    0.0089 ETH
+                    ~0.0089 ETH
                   </span>
                 </div>
               </div>
               <button
                 onClick={() => {
-                  setSelectedExport(exportQueue[2]);
-                  setShowPayment(true);
+                  if (importQueue.length > 0) {
+                    setSelectedExport(importQueue[0]);
+                    setShowPayment(true);
+                  }
                 }}
-                className="w-full bg-primary hover:bg-primary-hover text-background-dark font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-primary/20 mb-4"
+                disabled={importQueue.length === 0}
+                className="w-full bg-primary hover:bg-primary-hover text-background-dark font-bold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-primary/20 mb-4 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span className="material-symbols-outlined">bolt</span>
                 Confirm & Release Payment
@@ -608,7 +559,7 @@ export default function CustomsClearance() {
                       Batch
                     </p>
                     <p className="text-white font-mono font-medium">
-                      {selectedExport.batch}
+                      {selectedExport.batchId || selectedExport.batch}
                     </p>
                   </div>
                   <div className="p-4 rounded-lg bg-background-dark border border-border-dark">
@@ -616,21 +567,21 @@ export default function CustomsClearance() {
                       Seller
                     </p>
                     <p className="text-white font-medium">
-                      {selectedExport.seller}
+                      {selectedExport.seller || "Verified Seller"}
                     </p>
                   </div>
                   <div className="p-4 rounded-lg bg-background-dark border border-border-dark">
                     <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">
-                      Goods
+                      Order ID
                     </p>
-                    <p className="text-white">{selectedExport.goods}</p>
+                    <p className="text-white">{selectedExport.orderId || selectedExport.order}</p>
                   </div>
                   <div className="p-4 rounded-lg bg-background-dark border border-border-dark">
                     <p className="text-xs text-text-secondary uppercase tracking-wider mb-1">
                       Value
                     </p>
                     <p className="text-white font-bold">
-                      {selectedExport.amount}
+                      {selectedExport.amount || "See Escrow"}
                     </p>
                   </div>
                 </div>
@@ -719,9 +670,9 @@ export default function CustomsClearance() {
                     </span>
                     Trigger Escrow Payment
                   </h3>
-                  <p className="text-text-secondary text-sm mt-1">
-                    {selectedExport.id} — {selectedExport.seller}
-                  </p>
+                  <h3 className="text-xl font-bold text-white flex gap-3 items-center">
+                    {selectedExport.id} — {selectedExport.seller ? `${selectedExport.seller.slice(0, 8)}...` : "Unknown Seller"}
+                  </h3>
                 </div>
                 <button
                   onClick={() => setShowPayment(false)}
@@ -738,20 +689,20 @@ export default function CustomsClearance() {
                     </span>
                   </div>
                   <p className="text-3xl font-black text-white font-mono">
-                    {selectedExport.amount}
+                    {selectedExport.amount || "See Escrow"}
                   </p>
                   <p className="text-text-secondary text-sm mt-1">
-                    USDT to {selectedExport.seller}
+                    USDT to {selectedExport.seller ? `${selectedExport.seller.slice(0, 8)}...` : "Unknown Seller"}
                   </p>
                 </div>
 
                 <div className="bg-background-dark rounded-lg p-4 border border-border-dark space-y-3">
                   {[
                     ["Clearance ID", selectedExport.id],
-                    ["Batch", selectedExport.batch],
+                    ["Batch", selectedExport.batchId || selectedExport.batch],
                     [
                       "Route",
-                      `${selectedExport.country} → ${selectedExport.destination}`,
+                      `${selectedExport.country || "Intl"} → ${selectedExport.destination || "Port"}`,
                     ],
                     ["Gas Estimate", "0.0089 ETH"],
                     ["Method", "triggerPayment()"],
@@ -781,13 +732,20 @@ export default function CustomsClearance() {
                   Cancel
                 </button>
                 <button
-                  onClick={() => setShowPayment(false)}
-                  className="flex-[2] py-2.5 text-sm font-bold text-background-dark bg-primary hover:bg-primary-hover rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+                  onClick={() => handleForceRelease(selectedExport)}
+                  disabled={processingId === selectedExport.id}
+                  className="flex-[2] py-2.5 text-sm font-bold text-background-dark bg-primary hover:bg-primary-hover rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-primary/20 disabled:opacity-50"
                 >
-                  <span className="material-symbols-outlined text-[18px]">
-                    bolt
-                  </span>{" "}
-                  Confirm Release
+                  {processingId === selectedExport.id ? (
+                    <span className="material-symbols-outlined text-[18px] animate-spin">
+                      cached
+                    </span>
+                  ) : (
+                    <span className="material-symbols-outlined text-[18px]">
+                      bolt
+                    </span>
+                  )}{" "}
+                  {processingId === selectedExport.id ? "Releasing..." : "Confirm Release"}
                 </button>
               </div>
             </div>

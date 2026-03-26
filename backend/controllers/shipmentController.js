@@ -65,7 +65,7 @@ async function requestShipment(req, res, next) {
     }
 
     const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
-    const tx = await contract.shipReq(BigInt(batchId), freightForwarderAddress);
+    const tx = await contract.shipReq(userAddress, BigInt(batchId), freightForwarderAddress);
     const receipt = await tx.wait(1, 60000);
 
     if (!receipt || receipt.status !== 1) {
@@ -112,34 +112,80 @@ async function requestShipment(req, res, next) {
 
 /**
  * POST /api/shipments/:shipId/doc
- * Body: { privateKey, docHash }
- * Assigned freight forwarder uploads the shipping document hash.
+ * Expects multipart/form-data with:
+ *   - file: the document (PDF/image)
+ *   - privateKey: freight forwarder's private key
+ *   - docType: 0=CommercialInvoice, 1=PackingList, 2=BillOfLading, 3=CertificateOfOrigin
+ *
+ * Flow:
+ * 1. Upload file to IPFS via Pinata → get CID
+ * 2. Hash the CID → docHash (bytes32)
+ * 3. Call contract.uploadExportDoc(shipId, docType, docHash) on-chain
+ * 4. Save CID + metadata + docHash to MongoDB
  */
 async function uploadDocument(req, res, next) {
   try {
     const { shipId } = req.params;
-    const { docHash } = req.body;
-    if (!docHash) {
-      return res
-        .status(400)
-        .json({ success: false, error: "docHash is required" });
-    }
+    const { docType } = req.body;
 
-    const { privateKey } = req.body;
+    const DOC_TYPES = ["CommercialInvoice", "PackingList", "BillOfLading", "CertificateOfOrigin"];
+
+    const privateKey = req.body.privateKey || process.env.FREIGHT_FORWARDER_PRIVATE_KEY;
+
     if (!privateKey) {
       return res.status(400).json({
         success: false,
-        error: "privateKey is required",
+        error: "privateKey is required or backend not configured",
       });
     }
 
+    const docTypeNum = Number(docType);
+    if (isNaN(docTypeNum) || docTypeNum < 0 || docTypeNum > 3) {
+      return res.status(400).json({
+        success: false,
+        error: "docType is required: 0=CommercialInvoice, 1=PackingList, 2=BillOfLading, 3=CertificateOfOrigin",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "No file provided. Use multipart/form-data with field 'file'",
+      });
+    }
+
+    // Step 1: Upload file to IPFS
+    const { Readable } = require("stream");
+    const { uploadToIPFS } = require("../utils/ipfs");
+
+    const stream = Readable.from(req.file.buffer);
+    stream.path = req.file.originalname;
+
+    const ipfsResult = await uploadToIPFS(stream, req.file.originalname, {
+      shipId: String(shipId),
+      docType: DOC_TYPES[docTypeNum],
+      mimeType: req.file.mimetype,
+    });
+
+    // Step 2: Hash the CID for on-chain storage
+    const docHash = ethers.keccak256(ethers.toUtf8Bytes(ipfsResult.cid));
+
+    // Step 3: Call contract with freight forwarder's private key
     const contract = getRoleContract(privateKey);
-    const tx = await contract.docUpload(BigInt(shipId), docHash);
+    const tx = await contract.uploadExportDoc(BigInt(shipId), docTypeNum, docHash);
     const receipt = await tx.wait();
 
-    await saveRecord("DOC_UPLOADED", receipt, {
+    // Step 4: Save to MongoDB with CID reference
+    await saveRecord("EXPORT_DOC_UPLOADED", receipt, {
       shipId,
+      docType: DOC_TYPES[docTypeNum],
+      docTypeId: docTypeNum,
       docHash,
+      ipfsCid: ipfsResult.cid,
+      ipfsUrl: ipfsResult.ipfsUrl,
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      fileSize: req.file.size,
       freightForwarder: process.env.FREIGHT_FORWARDER_ADDRESS,
     });
 
@@ -147,7 +193,10 @@ async function uploadDocument(req, res, next) {
       success: true,
       txHash: receipt.hash,
       blockNumber: receipt.blockNumber,
-      message: `Document uploaded for shipment #${shipId}.`,
+      docType: DOC_TYPES[docTypeNum],
+      ipfsCid: ipfsResult.cid,
+      ipfsUrl: ipfsResult.ipfsUrl,
+      message: `${DOC_TYPES[docTypeNum]} uploaded to IPFS and hash stored on-chain for shipment #${shipId}.`,
     });
   } catch (err) {
     next(err);
@@ -162,11 +211,11 @@ async function uploadDocument(req, res, next) {
 async function exportVerify(req, res, next) {
   try {
     const { shipId } = req.params;
-    const { privateKey } = req.body;
+    const privateKey = req.body.privateKey || process.env.EXPORT_CUSTOMS_PRIVATE_KEY;
     if (!privateKey) {
       return res.status(400).json({
         success: false,
-        error: "privateKey is required",
+        error: "privateKey is required or backend not configured",
       });
     }
 
@@ -198,11 +247,11 @@ async function exportVerify(req, res, next) {
 async function importVerify(req, res, next) {
   try {
     const { shipId } = req.params;
-    const { privateKey } = req.body;
+    const privateKey = req.body.privateKey || process.env.IMPORT_CUSTOMS_PRIVATE_KEY;
     if (!privateKey) {
       return res.status(400).json({
         success: false,
-        error: "privateKey is required",
+        error: "privateKey is required or backend not configured",
       });
     }
 
@@ -254,42 +303,77 @@ async function getShipment(req, res, next) {
 }
 
 /**
- * GET /api/shipments
- * Returns all shipment-related events (ShipmentRequested, DocumentUploaded, CustomsCleared).
+ * GET /api/shipments/events
+ * Returns unified shipments aggregated from MongoDB records (SHIPMENT_REQUESTED, EXPORT_DOC_UPLOADED, EXPORT_CLEARED, IMPORT_CLEARED)
  */
 async function getShipmentEvents(req, res, next) {
   try {
-    const contract = getReadContract();
+    const Record = require("../models/Record");
+    const records = await Record.find({
+      recordType: {
+        $in: [
+          "SHIPMENT_REQUESTED",
+          "EXPORT_DOC_UPLOADED",
+          "EXPORT_CLEARED",
+          "IMPORT_CLEARED",
+        ],
+      },
+    }).sort({ createdAt: 1 });
 
-    const [reqEvents, docEvents, customsEvents] = await Promise.all([
-      contract.queryFilter(contract.filters.ShipmentRequested(), 0, "latest"),
-      contract.queryFilter(contract.filters.DocumentUploaded(), 0, "latest"),
-      contract.queryFilter(contract.filters.CustomsCleared(), 0, "latest"),
-    ]);
+    const shipmentsMap = new Map();
+
+    records.forEach((r) => {
+      const data = r.rawData;
+      if (r.recordType === "SHIPMENT_REQUESTED") {
+        shipmentsMap.set(data.shipId, {
+          id: data.shipId,
+          orderId: data.orderId || "1",
+          batchId: data.batchId,
+          freightForwarder: data.freightForwarder,
+          shipStatus: "Requested",
+          shipColor: "blue",
+          docStatus: "Pending Upload",
+          docColor: "yellow",
+          icon: "local_shipping",
+          iconBg: "bg-primary/10 text-primary",
+          docs: [],
+          timeline: [{ status: "Requested", date: r.createdAt }],
+        });
+      } else if (shipmentsMap.has(data.shipId)) {
+        const shipment = shipmentsMap.get(data.shipId);
+        
+        if (r.recordType === "EXPORT_DOC_UPLOADED") {
+          shipment.docs.push({
+            type: data.docType,
+            hash: data.docHash,
+            url: data.ipfsUrl,
+            name: data.fileName,
+          });
+          shipment.docStatus = `${shipment.docs.length} Docs Uploaded`;
+          shipment.docColor = "blue";
+          shipment.timeline.push({ status: `Doc: ${data.docType}`, date: r.createdAt });
+        } else if (r.recordType === "EXPORT_CLEARED") {
+          shipment.shipStatus = "Export Cleared";
+          shipment.shipColor = "green";
+          shipment.docStatus = "Verified";
+          shipment.docColor = "green";
+          shipment.icon = "fact_check";
+          shipment.iconBg = "bg-green-500/10 text-green-500";
+          shipment.timeline.push({ status: "Export Cleared", date: r.createdAt });
+        } else if (r.recordType === "IMPORT_CLEARED") {
+          shipment.shipStatus = "Import Cleared";
+          shipment.shipColor = "purple";
+          shipment.icon = "warehouse";
+          shipment.iconBg = "bg-purple-500/10 text-purple-500";
+          shipment.timeline.push({ status: "Import Cleared", date: r.createdAt });
+        }
+      }
+    });
 
     res.json({
       success: true,
-      data: {
-        requested: reqEvents.map((e) => ({
-          shipId: e.args.shipId.toString(),
-          batchId: e.args.batchId.toString(),
-          freightForwarder: e.args.freightForwarder,
-          blockNumber: e.blockNumber,
-          txHash: e.transactionHash,
-        })),
-        documentsUploaded: docEvents.map((e) => ({
-          shipId: e.args.shipId.toString(),
-          docHash: e.args.docHash,
-          blockNumber: e.blockNumber,
-          txHash: e.transactionHash,
-        })),
-        customsCleared: customsEvents.map((e) => ({
-          shipId: e.args.shipId.toString(),
-          authorityType: e.args.authorityType,
-          blockNumber: e.blockNumber,
-          txHash: e.transactionHash,
-        })),
-      },
+      count: shipmentsMap.size,
+      data: Array.from(shipmentsMap.values()).reverse()
     });
   } catch (err) {
     next(err);

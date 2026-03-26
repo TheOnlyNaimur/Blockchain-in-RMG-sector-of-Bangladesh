@@ -41,7 +41,8 @@ export default function BuyerRegistration() {
         userAddress: address,
       });
 
-      setSuccessTxHash(result.data.txHash);
+      // Extract txHash safely whether nested in data or flat
+      setSuccessTxHash(result?.txHash || result?.data?.txHash || "Unknown Tx");
 
       // Store buyer role for role detection
       localStorage.setItem(

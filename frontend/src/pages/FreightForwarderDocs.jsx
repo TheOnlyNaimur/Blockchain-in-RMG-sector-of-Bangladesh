@@ -3,60 +3,7 @@ import AppLayout from "../layouts/AppLayout";
 import StatCard from "../components/ui/StatCard";
 import StatusBadge from "../components/ui/StatusBadge";
 import RoleGuard from "../components/RoleGuard";
-import { useDocumentUpload } from "../hooks";
-
-const shipments = [
-  {
-    id: "B-99283",
-    order: "ORD-2023-001",
-    shipStatus: "In Transit",
-    shipColor: "blue",
-    docStatus: "Pending Upload",
-    docColor: "yellow",
-    icon: "qr_code_2",
-    iconBg: "bg-primary/10 text-primary",
-  },
-  {
-    id: "B-99284",
-    order: "ORD-2023-005",
-    shipStatus: "Customs Hold",
-    shipColor: "red",
-    docStatus: "Missing BOL",
-    docColor: "red",
-    icon: "warning",
-    iconBg: "bg-red-500/10 text-red-500",
-  },
-  {
-    id: "B-99285",
-    order: "ORD-2023-012",
-    shipStatus: "Warehoused",
-    shipColor: "purple",
-    docStatus: "Verified",
-    docColor: "green",
-    icon: "warehouse",
-    iconBg: "bg-surface-darker text-text-secondary",
-  },
-  {
-    id: "B-99286",
-    order: "ORD-2023-018",
-    shipStatus: "Dispatched",
-    shipColor: "blue",
-    docStatus: "Pending Invoice",
-    docColor: "yellow",
-    icon: "local_shipping",
-    iconBg: "bg-surface-darker text-text-secondary",
-  },
-  {
-    id: "B-99287",
-    order: "ORD-2023-022",
-    shipStatus: "In Transit",
-    shipColor: "blue",
-    docStatus: "Verified",
-    docColor: "green",
-    icon: "local_shipping",
-    iconBg: "bg-surface-darker text-text-secondary",
-  },
-];
+import { useDocumentUpload, useShipmentEvents } from "../hooks";
 
 export default function FreightForwarderDocs() {
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -64,8 +11,10 @@ export default function FreightForwarderDocs() {
   const [fileName, setFileName] = useState("");
   const [documentNotes, setDocumentNotes] = useState("");
   const { execute: uploadDocument, loading } = useDocumentUpload();
+  const { data: shipments = [] } = useShipmentEvents();
   const [successMessage, setSuccessMessage] = useState("");
   const [error, setError] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const handleUpload = (shipment) => {
     setUploadBatch(shipment);
@@ -74,52 +23,52 @@ export default function FreightForwarderDocs() {
     setSuccessMessage("");
   };
 
-  const handleSubmitUpload = async () => {
-    if (!fileName || !uploadBatch) return;
+  const [docType, setDocType] = useState("0"); // 0=Invoice, 1=Packing, 2=BOL, 3=Origin
+  const [file, setFile] = useState(null);
 
+  const handleSubmitUpload = async () => {
+    if (!file || !uploadBatch) return;
+
+    setIsUploading(true);
+    setError(null);
+    setSuccessMessage("");
     try {
-      const result = await uploadDocument({
-        shipmentId: uploadBatch.id,
-        data: {
-          documentType: "Bill of Lading",
-          documentHash: `0x${Math.random().toString(16).substr(2, 64)}`,
-          documentUrl: `https://docs.example.com/${uploadBatch.id}/${fileName}`,
-          notes: documentNotes,
-        },
-      });
-      setSuccessMessage(`Document uploaded! Transaction: ${result.txHash}`);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("docType", docType);
+
+      const response = await fetch(
+        `http://localhost:3000/api/shipments/${uploadBatch.id}/doc`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Upload failed");
+      }
+
+      setSuccessMessage(`Document uploaded! Transaction: ${data.txHash}`);
       setTimeout(() => {
         setShowUploadModal(false);
         setSuccessMessage("");
         setFileName("");
+        setFile(null);
         setDocumentNotes("");
-      }, 2000);
+      }, 3000);
     } catch (err) {
       console.error("Upload failed:", err);
+      setError({ message: err.message });
+    } finally {
+      setIsUploading(false);
     }
   };
 
   const handleSubmitHashDirectly = async () => {
-    setError(null);
-    setSuccessMessage(null);
-
-    try {
-      const result = await uploadDocument({
-        shipmentId: "B-99283",
-        data: {
-          documentType: "Bill of Lading",
-          documentHash:
-            "0x7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069",
-          documentUrl: "https://docs.example.com/default",
-        },
-      });
-      setSuccessMessage(
-        `Hash submitted to blockchain! Transaction: ${result.txHash}`,
-      );
-    } catch (err) {
-      setError(err);
-      console.error("Submit failed:", err);
-    }
+    setError({ message: "Direct hash submission disabled in strict compliance mode." });
   };
 
   return (
@@ -163,21 +112,21 @@ export default function FreightForwarderDocs() {
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
           <StatCard
             label="Pending Uploads"
-            value="12"
+            value={(shipments || []).filter(s => s.docStatus === "Pending Upload").length}
             change="+2%"
             icon="upload_file"
           />
           <StatCard
             label="Verified Hashes"
-            value="45"
+            value={(shipments || []).filter(s => s.docStatus === "Verified").length}
             change="+12%"
             icon="fact_check"
           />
-          <StatCard label="Active Shipments" value="8" icon="local_shipping" />
+          <StatCard label="Active Shipments" value={(shipments || []).length} icon="local_shipping" />
           <StatCard
-            label="Completed Batches"
-            value="156"
-            change="+5%"
+            label="Completed Transfers"
+            value={(shipments || []).filter(s => s.docStatus === "Verified").length.toString()}
+            change="Anchored"
             icon="inventory_2"
           />
         </div>
@@ -263,20 +212,20 @@ export default function FreightForwarderDocs() {
                         </div>
                       </td>
                       <td className="p-4 text-text-secondary text-sm">
-                        {s.order}
+                        ORD-{s.orderId || "1"}
                       </td>
                       <td className="p-4">
-                        <StatusBadge label={s.shipStatus} color={s.shipColor} />
+                        <StatusBadge label={s.shipStatus || "Pending"} color={s.shipColor || "gray"} />
                       </td>
                       <td className="p-4">
                         <StatusBadge
-                          label={s.docStatus}
-                          color={s.docColor}
+                          label={s.docStatus || "Pending Upload"}
+                          color={s.docColor || "yellow"}
                           icon={s.docColor === "green" ? "check" : null}
                         />
                       </td>
                       <td className="p-4 text-right">
-                        {s.docColor === "green" ? (
+                        {s.docStatus === "Verified" || s.docStatus?.includes("Docs Uploaded") ? (
                           <button className="text-text-secondary hover:text-white font-medium text-sm flex items-center gap-1 ml-auto">
                             <span className="material-symbols-outlined text-[16px]">
                               visibility
@@ -342,7 +291,7 @@ export default function FreightForwarderDocs() {
                     Selected Batch
                   </p>
                   <p className="text-white font-medium">
-                    B-99283 (ORD-2023-001)
+                    Batch #{uploadBatch?.id} (ORD-{uploadBatch?.orderId || "1"})
                   </p>
                   <p className="text-xs text-yellow-500 mt-1">
                     Required: Bill of Lading
@@ -471,7 +420,7 @@ export default function FreightForwarderDocs() {
                         Order
                       </span>
                       <p className="text-white font-mono">
-                        {uploadBatch.order}
+                        ORD-{uploadBatch.orderId || "1"}
                       </p>
                     </div>
                     <div>
@@ -500,13 +449,15 @@ export default function FreightForwarderDocs() {
                   <label className="text-sm font-medium text-white">
                     Document Type
                   </label>
-                  <select className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3">
-                    <option>Bill of Lading (BOL)</option>
-                    <option>Commercial Invoice</option>
-                    <option>Packing List</option>
-                    <option>Certificate of Origin</option>
-                    <option>Insurance Certificate</option>
-                    <option>Customs Declaration</option>
+                  <select 
+                    value={docType}
+                    onChange={(e) => setDocType(e.target.value)}
+                    className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3"
+                  >
+                    <option value="0">Commercial Invoice</option>
+                    <option value="1">Packing List</option>
+                    <option value="2">Bill of Lading</option>
+                    <option value="3">Certificate of Origin</option>
                   </select>
                 </div>
 
@@ -516,9 +467,13 @@ export default function FreightForwarderDocs() {
                     type="file"
                     className="absolute inset-0 opacity-0 cursor-pointer"
                     accept=".pdf,.jpg,.jpeg,.png"
-                    onChange={(e) =>
-                      setFileName(e.target.files?.[0]?.name || "")
-                    }
+                    onChange={(e) => {
+                      const selectedField = e.target.files?.[0];
+                      if (selectedField) {
+                        setFile(selectedField);
+                        setFileName(selectedField.name);
+                      }
+                    }}
                   />
                   <div className="bg-background-dark p-4 rounded-full mb-4 group-hover:scale-110 transition-transform shadow-lg border border-border-dark">
                     <span className="material-symbols-outlined text-4xl text-primary">

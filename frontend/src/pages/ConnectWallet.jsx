@@ -1,23 +1,43 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useWallet } from "../hooks";
+import { useUser } from "../contexts/UserContext";
+import { useRoleDetection, getRoleLabel } from "../hooks/useRoleDetection";
 
 const CHAIN_ID = import.meta.env.VITE_CHAIN_ID || "31337";
+
+const ROLE_ROUTES = {
+  seller: "/seller/dashboard",
+  buyer: "/buyer/dashboard",
+  certifier: "/certifier",
+  qualityChecker: "/qc",
+  freightForwarder: "/freight",
+  exportCustoms: "/customs",
+  importCustoms: "/customs",
+  complianceChecker: "/compliance", 
+};
 
 export default function ConnectWallet() {
   const navigate = useNavigate();
   const { isConnected, address, connect, error, status } = useWallet();
   const [errorMessage, setErrorMessage] = useState("");
+  
+  const { userRole, setUserRole } = useUser();
+  const { detectedRole, loading: roleLoading } = useRoleDetection();
+  
+  const currentRole = userRole || detectedRole;
 
-  // Auto-navigate once connected
+  // Auto-navigate once connected and role is detected
   useEffect(() => {
-    if (isConnected && address) {
-      // Connection successful - redirect to role selection
-      setTimeout(() => {
-        navigate("/connect-role");
+    if (isConnected && address && !roleLoading && currentRole && ROLE_ROUTES[currentRole]) {
+      setUserRole(currentRole);
+      // Connection successful - redirect to mapped dashboard
+      const timer = setTimeout(() => {
+        navigate(ROLE_ROUTES[currentRole]);
       }, 1000);
+      return () => clearTimeout(timer);
     }
-  }, [isConnected, address, navigate]);
+  }, [isConnected, address, roleLoading, currentRole, navigate, setUserRole]);
 
   // Handle connection errors
   useEffect(() => {
@@ -123,20 +143,39 @@ export default function ConnectWallet() {
             </div>
           )}
 
-          {isConnected && address && (
+          {isConnected && address && currentRole && (
             <div className="mb-6 w-full max-w-md rounded-lg bg-primary/10 border border-primary/30 p-4 flex items-start gap-3">
               <span className="material-symbols-outlined text-primary mt-1">
                 check_circle
               </span>
               <div className="text-left flex-1">
                 <p className="text-sm font-medium text-primary">
-                  Wallet Connected!
+                  Wallet Connected & Role Detected
                 </p>
                 <p className="text-xs text-primary/80 mt-1 break-all font-mono">
                   {address}
                 </p>
                 <p className="text-xs text-text-secondary mt-2">
-                  Redirecting to role selection...
+                  Redirecting to {getRoleLabel(currentRole)} dashboard...
+                </p>
+              </div>
+            </div>
+          )}
+
+          {isConnected && address && !currentRole && !roleLoading && (
+            <div className="mb-6 w-full max-w-md rounded-lg bg-yellow-500/10 border border-yellow-500/30 p-4 flex items-start gap-3">
+              <span className="material-symbols-outlined text-yellow-500 mt-1">
+                priority_high
+              </span>
+              <div className="text-left flex-1">
+                <p className="text-sm font-medium text-yellow-500">
+                  Wallet Connected
+                </p>
+                <p className="text-xs text-yellow-500/80 mt-1 break-all font-mono">
+                  {address}
+                </p>
+                <p className="text-xs text-text-secondary mt-2">
+                  No role detected. Please register below.
                 </p>
               </div>
             </div>
@@ -323,6 +362,21 @@ export default function ConnectWallet() {
           </div>
         </div>
       </footer>
+
+      {/* Floating Registration Instruction Notification */}
+      {isConnected && address && !roleLoading && !currentRole && (
+        <div className="fixed bottom-6 right-6 bg-surface-dark border border-primary/50 shadow-2xl shadow-primary/20 p-4 rounded-xl flex items-start gap-4 max-w-sm animate-[slideIn_0.5s_ease-out] z-50">
+          <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-primary">priority_high</span>
+          </div>
+          <div>
+            <h4 className="text-white font-bold text-sm mb-1">Registration Required</h4>
+            <p className="text-text-secondary text-xs leading-relaxed">
+              Your wallet is connected, but we couldn't find an existing profile. Please select <strong className="text-white">Register as Seller</strong> or <strong className="text-white">Register as Buyer</strong> to initialize your blockchain account.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

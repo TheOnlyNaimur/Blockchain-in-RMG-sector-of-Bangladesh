@@ -19,16 +19,21 @@ export default function Settings() {
     4: false,
   });
   const [profileData, setProfileData] = useState({
-    displayName: "Acme Global Exports",
-    email: "admin@acmeglobal.com",
-    role: "Seller",
-    contactNumber: "+1 (555) 123-4567",
+    displayName: "",
+    email: "",
+    role: "",
+    contactNumber: "",
   });
 
   // Load saved profile on mount
   useEffect(() => {
     if (userProfile) {
-      setProfileData(userProfile);
+      setProfileData({
+        displayName: userProfile.displayName || "",
+        email: userProfile.email || "",
+        role: userProfile.role || "",
+        contactNumber: userProfile.contactNumber || "",
+      });
     }
   }, [userProfile]);
 
@@ -153,7 +158,7 @@ export default function Settings() {
                   <div>
                     <p className="text-white font-medium text-sm">MetaMask</p>
                     <p className="text-text-secondary text-xs font-mono">
-                      0x71C7656EC7ab88b098defB751B7401B5f6d8976F
+                      {address || "Not connected"}
                     </p>
                   </div>
                 </div>
@@ -256,10 +261,9 @@ export default function Settings() {
                   Active Network
                 </label>
                 <select className="bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3">
+                  <option value={import.meta.env.VITE_CHAIN_ID}>{import.meta.env.VITE_CHAIN_NAME || "Anvil Local"}</option>
                   <option>Sepolia Testnet</option>
                   <option>Ethereum Mainnet</option>
-                  <option>Polygon Mainnet</option>
-                  <option>Arbitrum One</option>
                 </select>
               </div>
               <div className="flex flex-col gap-2">
@@ -268,7 +272,7 @@ export default function Settings() {
                 </label>
                 <input
                   className="bg-background-dark border border-border-dark text-text-secondary text-sm rounded-lg p-3 font-mono"
-                  defaultValue="https://sepolia.infura.io/v3/..."
+                  defaultValue={import.meta.env.VITE_RPC_URL || "http://127.0.0.1:8545"}
                 />
               </div>
               <div className="flex flex-col gap-2">
@@ -277,7 +281,7 @@ export default function Settings() {
                 </label>
                 <input
                   className="bg-background-dark border border-border-dark text-text-secondary text-sm rounded-lg p-3 font-mono"
-                  defaultValue="0x71C7656EC7ab88..."
+                  defaultValue={import.meta.env.VITE_CONTRACT_ADDRESS || "0x..."}
                 />
               </div>
               <div className="flex flex-col gap-2">
@@ -286,7 +290,7 @@ export default function Settings() {
                 </label>
                 <input
                   className="bg-background-dark border border-border-dark text-text-secondary text-sm rounded-lg p-3 font-mono"
-                  defaultValue="https://sepolia.etherscan.io"
+                  defaultValue={"http://localhost:8545 (Local Anvil)"}
                 />
               </div>
             </div>

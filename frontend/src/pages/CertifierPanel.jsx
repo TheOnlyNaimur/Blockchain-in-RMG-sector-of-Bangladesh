@@ -2,142 +2,37 @@ import { useState, useEffect } from "react";
 import AppLayout from "../layouts/AppLayout";
 import StatCard from "../components/ui/StatCard";
 import RoleGuard from "../components/RoleGuard";
-import { useSellerApproval } from "../hooks";
-
-const defaultPendingRows = [
-  {
-    address: "0x71C...9A2",
-    name: "Global Trade Co.",
-    tin: "US-98-123456",
-    submitted: "2 hours ago",
-    gradient: "from-blue-500 to-cyan-400",
-  },
-  {
-    address: "0x3E4...B1F",
-    name: "AgriExport Ltd.",
-    tin: "BR-12.345.678",
-    submitted: "4 hours ago",
-    gradient: "from-green-500 to-lime-400",
-  },
-  {
-    address: "0x9A2...71C",
-    name: "TechComponents Inc.",
-    tin: "CN-91310000",
-    submitted: "5 hours ago",
-    gradient: "from-purple-500 to-pink-400",
-  },
-  {
-    address: "0x1F2...8E9",
-    name: "Logistics Hub",
-    tin: "DE-811111111",
-    submitted: "1 day ago",
-    gradient: "from-orange-500 to-red-400",
-  },
-];
-
-const defaultApprovedRows = [
-  {
-    address: "0xA1B...2C3",
-    name: "Pacific Rim Trading",
-    tin: "JP-1234567890",
-    date: "Oct 26, 2023",
-    certHash: "0x7f83...d906",
-    gradient: "from-sky-500 to-indigo-400",
-    gasUsed: "0.0042 ETH",
-  },
-  {
-    address: "0xD4E...5F6",
-    name: "EuroTextiles GmbH",
-    tin: "DE-987654321",
-    date: "Oct 25, 2023",
-    certHash: "0x3a19...c7b2",
-    gradient: "from-emerald-500 to-teal-400",
-    gasUsed: "0.0039 ETH",
-  },
-  {
-    address: "0xG7H...8I9",
-    name: "AgroNord SA",
-    tin: "FR-76543210987",
-    date: "Oct 24, 2023",
-    certHash: "0x9d42...e5f1",
-    gradient: "from-amber-500 to-yellow-400",
-    gasUsed: "0.0045 ETH",
-  },
-  {
-    address: "0xJ1K...2L3",
-    name: "SilkRoad Exports",
-    tin: "IN-AABCU9603E",
-    date: "Oct 23, 2023",
-    certHash: "0x1b78...a3d4",
-    gradient: "from-pink-500 to-rose-400",
-    gasUsed: "0.0041 ETH",
-  },
-  {
-    address: "0xM4N...5O6",
-    name: "CapeGood Produce",
-    tin: "ZA-4740239",
-    date: "Oct 22, 2023",
-    certHash: "0x5e9c...f2b7",
-    gradient: "from-lime-500 to-green-400",
-    gasUsed: "0.0038 ETH",
-  },
-];
-
-const defaultRejectedRows = [
-  {
-    address: "0xP7Q...8R9",
-    name: "ShadowTrade LLC",
-    tin: "INVALID-000",
-    date: "Oct 26, 2023",
-    reason:
-      "Invalid TIN / Tax ID — document could not be verified against government registry.",
-    gradient: "from-red-500 to-orange-400",
-    reviewer: "Auto-reject (AI)",
-  },
-  {
-    address: "0xS1T...2U3",
-    name: "QuickShip Corp",
-    tin: "US-00-000000",
-    date: "Oct 24, 2023",
-    reason:
-      "Duplicate registration detected — wallet already associated with another entity.",
-    gradient: "from-gray-500 to-slate-400",
-    reviewer: "Reviewer: M. Chen",
-  },
-  {
-    address: "0xV4W...5X6",
-    name: "UnknownVentures",
-    tin: "XX-??-??????",
-    date: "Oct 21, 2023",
-    reason:
-      "Incomplete documentation — missing business license and proof of address.",
-    gradient: "from-rose-500 to-pink-400",
-    reviewer: "Reviewer: A. Patel",
-  },
-];
+import { useSellerApproval, useSellerEvents } from "../hooks";
 
 export default function CertifierPanel() {
   const [activeTab, setActiveTab] = useState("pending");
-  const [pendingRows, setPendingRows] = useState(defaultPendingRows);
-  const [approvedRows, setApprovedRows] = useState(defaultApprovedRows);
-  const [rejectedRows, setRejectedRows] = useState(defaultRejectedRows);
-  const [selectedPending, setSelectedPending] = useState(defaultPendingRows[1]);
+  const { data: allSellers = [], refetch: refetchSellers } = useSellerEvents();
+  const [pendingRows, setPendingRows] = useState([]);
+  const [approvedRows, setApprovedRows] = useState([]);
+  const [rejectedRows, setRejectedRows] = useState([]);
+  const [selectedPending, setSelectedPending] = useState(null);
   const { execute: approveSeller, loading, error } = useSellerApproval();
   const [successMessage, setSuccessMessage] = useState("");
   const [approvalProcessing, setApprovalProcessing] = useState(null);
 
   useEffect(() => {
-    // Fetch pending, approved, rejected sellers from API
-    // setPendingRows(fetchedPending)
-    // setApprovedRows(fetchedApproved)
-    // setRejectedRows(fetchedRejected)
-  }, []);
+    if (allSellers?.length > 0) {
+      const pending = allSellers.filter(s => s.status === "pending");
+      setPendingRows(pending);
+      setApprovedRows(allSellers.filter(s => s.status === "approved"));
+      setRejectedRows(allSellers.filter(s => s.status === "rejected"));
+      
+      if (!selectedPending && pending.length > 0) {
+        setSelectedPending(pending[0]);
+      }
+    }
+  }, [allSellers]);
 
   const handleApprove = async (sellerAddress) => {
     setApprovalProcessing(sellerAddress);
     setSuccessMessage("");
     try {
-      const result = await approveSeller({ sellerAddress });
+      const result = await approveSeller({ sellerAddress, assign: 1 });
       setSuccessMessage(`Seller approved! Transaction: ${result.txHash}`);
       // Move from pending to approved
       const approved = pendingRows.find((r) => r.address === sellerAddress);
@@ -192,9 +87,9 @@ export default function CertifierPanel() {
   };
 
   const tabs = [
-    { id: "pending", label: "Pending Requests", count: 24 },
-    { id: "approved", label: "Approved History", count: 156 },
-    { id: "rejected", label: "Rejected Log", count: 18 },
+    { id: "pending", label: "Pending Requests", count: pendingRows.length },
+    { id: "approved", label: "Approved History", count: approvedRows.length },
+    { id: "rejected", label: "Rejected Log", count: rejectedRows.length },
   ];
 
   return (
@@ -268,10 +163,10 @@ export default function CertifierPanel() {
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <StatCard label="Pending Review" value="24" icon="pending_actions" />
-          <StatCard label="Approved Today" value="12" icon="verified" />
-          <StatCard label="Rejected" value="3" icon="block" />
-          <StatCard label="Avg. Wait Time" value="4h 12m" icon="schedule" />
+          <StatCard label="Pending Review" value={(allSellers || []).filter((s) => !s.businessLicenseHash).length.toString()} icon="pending_actions" />
+          <StatCard label="Approved Total" value={(allSellers || []).filter((s) => s.businessLicenseHash).length.toString()} icon="verified" />
+          <StatCard label="Total Submissions" value={(allSellers || []).length.toString()} icon="domain" />
+          <StatCard label="Avg. Wait Time" value="< 1 Sec" icon="schedule" />
         </div>
 
         {/* Tabs + Table */}

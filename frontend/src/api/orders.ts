@@ -59,5 +59,5 @@ export const ordersApi = {
       request,
     ),
 
-  getEvents: () => apiClient.get<ApiResponse<OrderEvent[]>>("/orders/events"),
+  getOrders: () => apiClient.get<ApiResponse<any[]>>("/orders"),
 };

@@ -10,7 +10,7 @@ export {
   useOrderCreation,
   useOrderAcceptance,
   useOrderPayment,
-  useOrderEvents,
+  useOrdersFetching,
 } from "./useOrders";
 export {
   useBatchCreation,
@@ -28,3 +28,4 @@ export {
 export { useWallet } from "./useWallet";
 export { useRoleDetection, useHasRole, getRoleLabel } from "./useRoleDetection";
 export type { UserRole } from "./useRoleDetection";
+export { useIntegrityVerification } from "./useIntegrityVerification";

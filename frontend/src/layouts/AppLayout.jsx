@@ -1,18 +1,86 @@
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useRoleDetection, getRoleLabel } from '../hooks/useRoleDetection'
+import { useWallet } from '../hooks/useWallet'
 
+// Each nav item has a `roles` array — only shown if user's detected role is in it
 const navItems = [
-    { path: '/seller/dashboard', label: 'Seller Dashboard', icon: 'storefront' },
-    { path: '/buyer/dashboard', label: 'Buyer Dashboard', icon: 'shopping_cart' },
-    { path: '/certifier', label: 'Certifier Panel', icon: 'verified_user' },
-    { path: '/qc', label: 'Quality Control', icon: 'fact_check' },
-    { path: '/freight', label: 'Freight Docs', icon: 'local_shipping' },
-    { path: '/tracking', label: 'Shipment Tracking', icon: 'timeline' },
-    { path: '/customs', label: 'Customs Clearance', icon: 'gavel' },
-    { path: '/settings', label: 'Settings', icon: 'settings' },
+    {
+        path: '/seller/dashboard',
+        label: 'Seller Dashboard',
+        icon: 'storefront',
+        roles: ['seller'],
+    },
+    {
+        path: '/buyer/dashboard',
+        label: 'Buyer Dashboard',
+        icon: 'shopping_cart',
+        roles: ['buyer'],
+    },
+    {
+        path: '/compliance',
+        label: 'Compliance Panel',
+        icon: 'verified_user',
+        roles: ['complianceChecker'],
+    },
+    {
+        path: '/certifier',
+        label: 'Certifier Panel',
+        icon: 'workspace_premium',
+        roles: ['certifier'],
+    },
+    {
+        path: '/qc',
+        label: 'Quality Control',
+        icon: 'fact_check',
+        roles: ['qualityChecker'],
+    },
+    {
+        path: '/freight',
+        label: 'Freight Docs',
+        icon: 'local_shipping',
+        roles: ['freightForwarder'],
+    },
+    {
+        path: '/tracking',
+        label: 'Shipment Tracking',
+        icon: 'timeline',
+        roles: ['seller', 'buyer', 'certifier', 'qualityChecker', 'freightForwarder', 'exportCustoms', 'importCustoms', 'complianceChecker'],
+    },
+    {
+        path: '/traceability',
+        label: 'Traceability Audit',
+        icon: 'verified',
+        roles: ['seller', 'buyer', 'certifier', 'qualityChecker', 'freightForwarder', 'exportCustoms', 'importCustoms', 'complianceChecker'],
+    },
+    {
+        path: '/customs',
+        label: 'Customs Clearance',
+        icon: 'gavel',
+        roles: ['exportCustoms', 'importCustoms'],
+    },
+    {
+        path: '/settings',
+        label: 'Settings',
+        icon: 'settings',
+        roles: ['seller', 'buyer', 'certifier', 'qualityChecker', 'freightForwarder', 'exportCustoms', 'importCustoms', 'complianceChecker'],
+    },
 ]
 
 export default function AppLayout({ children, title = 'Dashboard' }) {
     const location = useLocation()
+    const { detectedRole } = useRoleDetection()
+    const { disconnect } = useWallet()
+    const navigate = useNavigate()
+
+    // Filter nav items based on user's detected role
+    const visibleNavItems = navItems.filter(
+        (item) => !detectedRole || item.roles.includes(detectedRole)
+    )
+
+    const handleDisconnect = () => {
+        disconnect()
+        navigate('/')
+    }
 
     return (
         <div className="flex h-screen w-full overflow-hidden">
@@ -30,9 +98,17 @@ export default function AppLayout({ children, title = 'Dashboard' }) {
                         <p className="text-text-secondary text-xs font-normal">Blockchain Supply Chain</p>
                     </div>
 
-                    {/* Navigation */}
+                    {/* Role indicator */}
+                    {detectedRole && (
+                        <div className="mb-4 mx-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20">
+                            <p className="text-[10px] uppercase tracking-wider text-text-secondary mb-0.5">Logged in as</p>
+                            <p className="text-sm font-semibold text-primary">{getRoleLabel(detectedRole)}</p>
+                        </div>
+                    )}
+
+                    {/* Navigation — filtered by role */}
                     <nav className="flex flex-col gap-1 flex-1 overflow-y-auto">
-                        {navItems.map((item) => {
+                        {visibleNavItems.map((item) => {
                             const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/')
                             return (
                                 <Link
@@ -55,21 +131,17 @@ export default function AppLayout({ children, title = 'Dashboard' }) {
                     {/* Stats */}
                     <div className="mt-auto flex flex-col gap-3 py-4 border-t border-border-dark">
                         <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider px-2 mb-1">
-                            Live Metrics
+                            Network Status
                         </h3>
                         <div className="p-3 rounded-lg bg-surface-dark border border-border-dark">
                             <div className="flex justify-between items-start mb-1">
-                                <span className="text-xs text-text-secondary">Total Volume</span>
-                                <span className="text-xs text-primary font-medium">+12%</span>
+                                <span className="text-xs text-text-secondary">Chain</span>
+                                <span className="relative flex h-2 w-2 mt-1">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                                </span>
                             </div>
-                            <p className="text-white text-lg font-bold">$4.2B</p>
-                        </div>
-                        <div className="p-3 rounded-lg bg-surface-dark border border-border-dark">
-                            <div className="flex justify-between items-start mb-1">
-                                <span className="text-xs text-text-secondary">Active Nodes</span>
-                                <span className="text-xs text-primary font-medium">+5%</span>
-                            </div>
-                            <p className="text-white text-lg font-bold">1,240</p>
+                            <p className="text-white text-sm font-bold">Anvil (Local)</p>
                         </div>
                     </div>
                 </div>
@@ -94,15 +166,20 @@ export default function AppLayout({ children, title = 'Dashboard' }) {
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                             </span>
-                            Sepolia Testnet
+                            Anvil Local
                         </div>
-                        <button className="flex items-center gap-2 px-4 py-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-lg text-sm font-bold transition-all">
-                            <span className="material-symbols-outlined text-[18px]">account_balance_wallet</span>
-                            <span className="hidden sm:inline">0x71...8A2</span>
+                        {detectedRole && (
+                            <span className="hidden sm:inline px-3 py-1.5 bg-primary/10 text-primary border border-primary/20 rounded-full text-xs font-semibold">
+                                {getRoleLabel(detectedRole)}
+                            </span>
+                        )}
+                        <button 
+                            onClick={handleDisconnect}
+                            title="Disconnect Wallet"
+                            className="w-10 h-10 rounded-full bg-surface-dark border-2 border-border-dark flex items-center justify-center text-text-secondary hover:text-red-500 hover:border-red-500/50 transition-colors"
+                        >
+                            <span className="material-symbols-outlined">logout</span>
                         </button>
-                        <div className="w-10 h-10 rounded-full bg-surface-dark border-2 border-border-dark flex items-center justify-center text-text-secondary">
-                            <span className="material-symbols-outlined">person</span>
-                        </div>
                     </div>
                 </header>
 

@@ -60,7 +60,7 @@ async function registerSeller(req, res, next) {
       });
     }
 
-    // Step 2: Hash the data for on-chain reference
+    // Step 2: Hash the data for on-chain storage (privacy: only hash goes on-chain)
     const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
 
     // Step 3: Call the smart contract from the backend
@@ -73,7 +73,8 @@ async function registerSeller(req, res, next) {
 
     const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
     const tx = await contract.registrationseller(
-      name,
+      userAddress,
+      dataHash,
       BigInt(tinid),
       BigInt(number),
     );
@@ -125,11 +126,11 @@ async function approveSeller(req, res, next) {
       });
     }
 
-    const { privateKey } = req.body;
+    const privateKey = req.body.privateKey || process.env.CERTIFIER_PRIVATE_KEY;
     if (!privateKey) {
       return res.status(400).json({
         success: false,
-        error: "privateKey is required",
+        error: "privateKey is required or backend not configured",
       });
     }
 
@@ -157,22 +158,42 @@ async function approveSeller(req, res, next) {
 
 /**
  * GET /api/sellers/events
- * Returns all SellerRegistered events from the contract.
+ * Returns aggregated sellers from MongoDB records.
  */
 async function getSellerEvents(req, res, next) {
   try {
-    const contract = getReadContract();
-    const filter = contract.filters.SellerRegistered();
-    const events = await contract.queryFilter(filter, 0, "latest");
+    const Record = require("../models/Record");
+    const records = await Record.find({
+      recordType: { $in: ["SELLER_REGISTERED", "SELLER_APPROVED"] },
+    }).sort({ createdAt: 1 });
 
-    const parsed = events.map((e) => ({
-      sellerAddress: e.args.seller,
-      name: e.args.name,
-      blockNumber: e.blockNumber,
-      txHash: e.transactionHash,
-    }));
+    const sellersMap = new Map();
 
-    res.json({ success: true, count: parsed.length, data: parsed });
+    records.forEach((r) => {
+      const data = r.rawData;
+      if (r.recordType === "SELLER_REGISTERED") {
+        sellersMap.set(data.sellerAddress, {
+          address: data.sellerAddress,
+          name: data.companyName || "Unknown Entity",
+          tin: data.tin || "N/A",
+          status: "pending",
+          submitted: new Date(r.createdAt).toLocaleString(),
+          gradient: "from-blue-500 to-cyan-400", // Default UI color
+        });
+      } else if (r.recordType === "SELLER_APPROVED") {
+        if (sellersMap.has(data.sellerAddress)) {
+          const seller = sellersMap.get(data.sellerAddress);
+          seller.status = data.decision === "approved" ? "approved" : "rejected";
+          seller.date = new Date(r.createdAt).toLocaleDateString();
+          seller.certHash = r.contractFeedback?.txHash || "0x00";
+          seller.gasUsed = r.contractFeedback?.gasUsed ? `${r.contractFeedback.gasUsed} gas` : "N/A";
+          seller.reason = data.decision === "rejected" ? "Verification failed" : null;
+          seller.reviewer = "Certifier Node";
+        }
+      }
+    });
+
+    res.json({ success: true, count: sellersMap.size, data: Array.from(sellersMap.values()).reverse() });
   } catch (err) {
     next(err);
   }

@@ -6,6 +6,7 @@ export * from "./orders";
 export * from "./batches";
 export * from "./shipments";
 export * from "./records";
+export * from "./ipfs";
 
 // Re-export all APIs as namespace
 export { sellersApi } from "./sellers";

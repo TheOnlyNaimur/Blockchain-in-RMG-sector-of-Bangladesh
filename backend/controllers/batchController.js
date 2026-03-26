@@ -50,8 +50,9 @@ async function createBatch(req, res, next) {
       });
     }
 
-    // Step 2: Hash the data
+    // Step 2: Hash the data for on-chain storage (privacy: only hash goes on-chain)
     const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
+    const productInfoHash = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify({ orderId, productInfo })));
 
     // Step 3: Call contract with backend private key
     if (!process.env.BACKEND_PRIVATE_KEY) {
@@ -62,7 +63,7 @@ async function createBatch(req, res, next) {
     }
 
     const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
-    const tx = await contract.batchCreate(BigInt(orderId), productInfo);
+    const tx = await contract.batchCreate(userAddress, BigInt(orderId), productInfoHash);
     const receipt = await tx.wait(1, 60000);
 
     if (!receipt || receipt.status !== 1) {
@@ -122,11 +123,11 @@ async function qualityCheck(req, res, next) {
       });
     }
 
-    const { privateKey } = req.body;
+    const privateKey = req.body.privateKey || process.env.QUALITY_CHECKER_PRIVATE_KEY;
     if (!privateKey) {
       return res.status(400).json({
         success: false,
-        error: "privateKey is required",
+        error: "privateKey is required or backend not configured",
       });
     }
 
@@ -168,7 +169,7 @@ async function getBatchEvents(req, res, next) {
       type: "BatchCreated",
       batchId: e.args.batchId.toString(),
       orderId: e.args.orderId.toString(),
-      productInfo: e.args.productInfo,
+      productInfoHash: e.args.productInfoHash,
       blockNumber: e.blockNumber,
       txHash: e.transactionHash,
     }));

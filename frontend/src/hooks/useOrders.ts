@@ -2,13 +2,11 @@ import { useAsync, useFetch, createAsyncFn } from "./useAsync";
 import { useWallet } from "./useWallet";
 import {
   ordersApi,
-  OrderCreateRequest,
-  OrderAcceptRequest,
   OrderPayRequest,
+  OrderAcceptRequest,
   OrderData,
   OrderAcceptData,
   OrderPayData,
-  OrderEvent,
 } from "../api";
 
 /**
@@ -70,10 +68,10 @@ export function useOrderPayment() {
 }
 
 /**
- * Hook for fetching order events
+ * Hook for fetching orders
  */
-export function useOrderEvents() {
-  return useFetch<OrderEvent[]>(() =>
-    ordersApi.getEvents().then((res: any) => res.data || res.data || []),
+export function useOrdersFetching() {
+  return useFetch<any[]>(() =>
+    ordersApi.getOrders().then((res: any) => res.data || res.data || []),
   );
 }

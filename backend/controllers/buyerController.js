@@ -56,7 +56,7 @@ async function registerBuyer(req, res, next) {
       });
     }
 
-    // Step 2: Hash the data for on-chain reference
+    // Step 2: Hash the data for on-chain storage (privacy: only hash goes on-chain)
     const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
 
     // Step 3: Call the smart contract from the backend
@@ -68,7 +68,7 @@ async function registerBuyer(req, res, next) {
     }
 
     const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
-    const tx = await contract.registrationbuyer(name);
+    const tx = await contract.registrationbuyer(userAddress, dataHash);
 
     // Step 4: Wait for transaction confirmation
     const receipt = await tx.wait(1, 60000); // 1 confirmation, 60 second timeout
