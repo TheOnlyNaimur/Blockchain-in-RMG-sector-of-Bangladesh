@@ -4,76 +4,58 @@ const {
   getRoleContract,
 } = require("../config/contract");
 const saveRecord = require("../utils/saveRecord");
+const { safeContractCall } = require("../utils/contractErrors");
 const { ethers } = require("ethers");
 
 /**
  * POST /api/batches
- * Body: { data, signature, userAddress }
- * data: { orderId, productInfo }
- * Seller/manufacturer records a production batch linked to an accepted order (verified via signature).
  */
 async function createBatch(req, res, next) {
   try {
     const { data, signature, userAddress } = req.body;
 
     if (!data || !signature || !userAddress) {
-      return res.status(400).json({
-        success: false,
-        error: "data, signature, and userAddress are required",
-      });
+      return res.status(400).json({ success: false, error: "data, signature, and userAddress are required" });
     }
 
     const { orderId, productInfo } = data;
     if (!orderId || !productInfo) {
-      return res.status(400).json({
-        success: false,
-        error: "orderId and productInfo are required in data",
-      });
+      return res.status(400).json({ success: false, error: "orderId and productInfo are required in data" });
     }
 
-    // Step 1: Verify signature
+    // Verify signature
     const message = JSON.stringify(data);
     let recoveredAddress;
     try {
       recoveredAddress = ethers.verifyMessage(message, signature);
     } catch (err) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid signature",
-      });
+      return res.status(401).json({ success: false, error: "Invalid signature" });
     }
 
     if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
-      return res.status(401).json({
-        success: false,
-        error: "Signature does not match user address",
-      });
+      return res.status(401).json({ success: false, error: "Signature does not match user address" });
     }
 
-    // Step 2: Hash the data for on-chain storage (privacy: only hash goes on-chain)
-    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
     const productInfoHash = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify({ orderId, productInfo })));
+    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
 
-    // Step 3: Call contract with backend private key
     if (!process.env.BACKEND_PRIVATE_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: "Backend private key not configured",
-      });
+      return res.status(500).json({ success: false, error: "Backend private key not configured" });
     }
 
     const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
-    const tx = await contract.batchCreate(userAddress, BigInt(orderId), productInfoHash);
-    const receipt = await tx.wait(1, 60000);
+    const result = await safeContractCall({
+      contract,
+      method: "batchCreate",
+      args: [userAddress, BigInt(orderId), productInfoHash],
+      context: "createBatch",
+      res,
+    });
+    if (!result) return;
 
-    if (!receipt || receipt.status !== 1) {
-      return res.status(500).json({
-        success: false,
-        error: "Transaction failed or reverted",
-      });
-    }
+    const { receipt } = result;
 
-    // Step 5: Parse event and save record
+    // Parse BatchCreated event
     const iface = contract.interface;
     let batchId = null;
     for (const log of receipt.logs) {
@@ -109,31 +91,31 @@ async function createBatch(req, res, next) {
 
 /**
  * POST /api/batches/:batchId/quality
- * Body: { privateKey, status }  (status: true = pass, false = fail)
- * Quality checker verifies the batch production.
  */
 async function qualityCheck(req, res, next) {
   try {
     const { batchId } = req.params;
     const { status } = req.body;
     if (status === undefined) {
-      return res.status(400).json({
-        success: false,
-        error: "status (true|false) is required",
-      });
+      return res.status(400).json({ success: false, error: "status (true|false) is required" });
     }
 
     const privateKey = req.body.privateKey || process.env.QUALITY_CHECKER_PRIVATE_KEY;
     if (!privateKey) {
-      return res.status(400).json({
-        success: false,
-        error: "privateKey is required or backend not configured",
-      });
+      return res.status(400).json({ success: false, error: "privateKey is required or backend not configured" });
     }
 
     const contract = getRoleContract(privateKey);
-    const tx = await contract.bqualitycheck(BigInt(batchId), Boolean(status));
-    const receipt = await tx.wait();
+    const result = await safeContractCall({
+      contract,
+      method: "bqualitycheck",
+      args: [BigInt(batchId), Boolean(status)],
+      context: "qualityCheck",
+      res,
+    });
+    if (!result) return;
+
+    const { receipt } = result;
 
     await saveRecord("QUALITY_CHECK", receipt, {
       batchId,
@@ -154,25 +136,44 @@ async function qualityCheck(req, res, next) {
 
 /**
  * GET /api/batches/events
- * Returns all BatchCreated and BatchQualityUpdated events.
  */
 async function getBatchEvents(req, res, next) {
   try {
     const contract = getReadContract();
 
-    const [createdEvents, qualityEvents] = await Promise.all([
+    const [createdEvents, qualityEvents, orderEvents] = await Promise.all([
       contract.queryFilter(contract.filters.BatchCreated(), 0, "latest"),
       contract.queryFilter(contract.filters.BatchQualityUpdated(), 0, "latest"),
+      contract.queryFilter(contract.filters.OrderCreated(), 0, "latest"),
     ]);
 
-    const created = createdEvents.map((e) => ({
-      type: "BatchCreated",
-      batchId: e.args.batchId.toString(),
-      orderId: e.args.orderId.toString(),
-      productInfoHash: e.args.productInfoHash,
-      blockNumber: e.blockNumber,
-      txHash: e.transactionHash,
-    }));
+    const orderSellerMap = {};
+    orderEvents.forEach((e) => {
+      orderSellerMap[e.args.orderId.toString()] = e.args.seller;
+    });
+
+    const Record = require("../models/Record");
+    const batchRecords = await Record.find({ recordType: "BATCH_CREATED" }).lean();
+    const batchInfoMap = new Map();
+    batchRecords.forEach((r) => {
+      if (r.rawData && r.rawData.batchId) {
+        batchInfoMap.set(String(r.rawData.batchId), r.rawData.productInfo || "N/A");
+      }
+    });
+
+    const created = createdEvents.map((e) => {
+      const bId = e.args.batchId.toString();
+      return {
+        type: "BatchCreated",
+        batchId: bId,
+        orderId: e.args.orderId.toString(),
+        seller: orderSellerMap[e.args.orderId.toString()] || null,
+        productInfo: batchInfoMap.get(bId) || "N/A",
+        productInfoHash: e.args.productInfoHash,
+        blockNumber: e.blockNumber,
+        txHash: e.transactionHash,
+      };
+    });
 
     const quality = qualityEvents.map((e) => ({
       type: "BatchQualityUpdated",

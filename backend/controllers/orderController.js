@@ -1,83 +1,59 @@
 const { getWriteContract, getReadContract } = require("../config/contract");
 const { ethers } = require("ethers");
 const saveRecord = require("../utils/saveRecord");
+const { safeContractCall } = require("../utils/contractErrors");
 
 /**
  * POST /api/orders
- * Body: { data, signature, userAddress }
- * data: { details, buyerAddress }
- * Approved seller creates a purchase order for a specific buyer (verified via signature).
  */
 async function createOrder(req, res, next) {
   try {
     const { data, signature, userAddress } = req.body;
 
-    // Validate inputs
     if (!data || !signature || !userAddress) {
-      return res.status(400).json({
-        success: false,
-        error: "data, signature, and userAddress are required",
-      });
+      return res.status(400).json({ success: false, error: "data, signature, and userAddress are required" });
     }
 
-    const { details, buyerAddress, hsCode, destination } = data;
-    if (!details || !buyerAddress) {
-      return res.status(400).json({
-        success: false,
-        error: "details and buyerAddress are required in data",
-      });
+    const { details, buyerAddress, hsCode, destination, amount } = data;
+    if (!details || !buyerAddress || !amount) {
+      return res.status(400).json({ success: false, error: "details, buyerAddress, and amount are required in data" });
     }
 
-    // Step 1: Verify signature
+    // Verify signature
     const message = JSON.stringify(data);
     let recoveredAddress;
     try {
       recoveredAddress = ethers.verifyMessage(message, signature);
     } catch (err) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid signature",
-      });
+      return res.status(401).json({ success: false, error: "Invalid signature" });
     }
 
     if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
-      return res.status(401).json({
-        success: false,
-        error: "Signature does not match user address",
-      });
+      return res.status(401).json({ success: false, error: "Signature does not match user address" });
     }
 
-    // Step 2: Hash the data for on-chain storage (privacy: only hash goes on-chain)
-    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
     const detailsHash = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify({ details, buyerAddress })));
-    const hsCodeHash = hsCode
-      ? ethers.keccak256(ethers.toUtf8Bytes(hsCode))
-      : ethers.ZeroHash;
-    const destinationHash = destination
-      ? ethers.keccak256(ethers.toUtf8Bytes(destination))
-      : ethers.ZeroHash;
+    const hsCodeHash = hsCode ? ethers.keccak256(ethers.toUtf8Bytes(hsCode)) : ethers.ZeroHash;
+    const destinationHash = destination ? ethers.keccak256(ethers.toUtf8Bytes(destination)) : ethers.ZeroHash;
+    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
 
-    // Step 3: Call contract with backend private key
     if (!process.env.BACKEND_PRIVATE_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: "Backend private key not configured",
-      });
+      return res.status(500).json({ success: false, error: "Backend private key not configured" });
     }
 
     const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
-    const tx = await contract.createdealforbuyers(userAddress, detailsHash, buyerAddress, hsCodeHash, destinationHash);
-    const receipt = await tx.wait(1, 60000);
+    const result = await safeContractCall({
+      contract,
+      method: "createdealforbuyers",
+      args: [userAddress, detailsHash, buyerAddress, hsCodeHash, destinationHash],
+      context: "createOrder",
+      res,
+    });
+    if (!result) return;
 
-    // Step 4: Verify receipt
-    if (!receipt || receipt.status !== 1) {
-      return res.status(500).json({
-        success: false,
-        error: "Transaction failed or reverted",
-      });
-    }
+    const { receipt } = result;
 
-    // Step 5: Parse event and save record
+    // Parse OrderCreated event
     const iface = contract.interface;
     let orderId = null;
     for (const log of receipt.logs) {
@@ -95,6 +71,7 @@ async function createOrder(req, res, next) {
       sellerAddress: userAddress,
       buyerAddress,
       details,
+      amount,
       signature,
       dataHash,
     });
@@ -113,9 +90,6 @@ async function createOrder(req, res, next) {
 
 /**
  * POST /api/orders/:orderId/accept
- * Body: { data, signature, userAddress }
- * data: { orderId }
- * Registered buyer accepts the order (verified via signature).
  */
 async function acceptOrder(req, res, next) {
   try {
@@ -124,52 +98,37 @@ async function acceptOrder(req, res, next) {
 
     const { amount } = data;
     if (!amount) {
-      return res.status(400).json({
-        success: false,
-        error: "amount is required in data for USDT escrow",
-      });
+      return res.status(400).json({ success: false, error: "amount is required in data for USDT escrow" });
     }
 
-    // Step 1: Verify signature
+    // Verify signature
     const message = JSON.stringify(data);
     let recoveredAddress;
     try {
       recoveredAddress = ethers.verifyMessage(message, signature);
     } catch (err) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid signature",
-      });
+      return res.status(401).json({ success: false, error: "Invalid signature" });
     }
 
     if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
-      return res.status(401).json({
-        success: false,
-        error: "Signature does not match user address",
-      });
+      return res.status(401).json({ success: false, error: "Signature does not match user address" });
     }
 
-    // Step 2: Hash the data for on-chain storage
-    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
-
-    // Step 3: Call contract with backend private key
     if (!process.env.BACKEND_PRIVATE_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: "Backend private key not configured",
-      });
+      return res.status(500).json({ success: false, error: "Backend private key not configured" });
     }
 
     const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
-    const tx = await contract.acceptorder(userAddress, BigInt(orderId), BigInt(amount));
-    const receipt = await tx.wait(1, 60000);
+    const result = await safeContractCall({
+      contract,
+      method: "acceptorder",
+      args: [userAddress, BigInt(orderId), BigInt(amount)],
+      context: "acceptOrder",
+      res,
+    });
+    if (!result) return;
 
-    if (!receipt || receipt.status !== 1) {
-      return res.status(500).json({
-        success: false,
-        error: "Transaction failed or reverted",
-      });
-    }
+    const { receipt } = result;
 
     // Generate agreement PDF and upload to IPFS
     let agreementInfo = null;
@@ -178,11 +137,9 @@ async function acceptOrder(req, res, next) {
       const { Readable } = require("stream");
       const { uploadToIPFS } = require("../utils/ipfs");
 
-      // Build PDF in memory
       const doc = new PDFDocument({ margin: 50 });
       const chunks = [];
       doc.on("data", (chunk) => chunks.push(chunk));
-
       const pdfDone = new Promise((resolve) => doc.on("end", resolve));
 
       doc.fontSize(20).text("TRADE AGREEMENT", { align: "center" });
@@ -242,8 +199,6 @@ async function acceptOrder(req, res, next) {
 
 /**
  * POST /api/orders/:orderId/confirm-delivery
- * Body: { data, signature, userAddress, shipId }
- * Buyer confirms goods received → releases escrowed USDT to seller.
  */
 async function confirmDelivery(req, res, next) {
   try {
@@ -251,13 +206,9 @@ async function confirmDelivery(req, res, next) {
     const { data, signature, userAddress, shipId } = req.body;
 
     if (!data || !signature || !userAddress || !shipId) {
-      return res.status(400).json({
-        success: false,
-        error: "data, signature, userAddress, and shipId are required",
-      });
+      return res.status(400).json({ success: false, error: "data, signature, userAddress, and shipId are required" });
     }
 
-    // Verify signature
     const message = JSON.stringify(data);
     let recoveredAddress;
     try {
@@ -267,22 +218,20 @@ async function confirmDelivery(req, res, next) {
     }
 
     if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
-      return res.status(401).json({
-        success: false,
-        error: "Signature does not match user address",
-      });
+      return res.status(401).json({ success: false, error: "Signature does not match user address" });
     }
 
     const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
-    const tx = await contract.buyerConfirmDelivery(userAddress, BigInt(orderId), BigInt(shipId));
-    const receipt = await tx.wait(1, 60000);
+    const result = await safeContractCall({
+      contract,
+      method: "buyerConfirmDelivery",
+      args: [userAddress, BigInt(orderId), BigInt(shipId)],
+      context: "confirmDelivery",
+      res,
+    });
+    if (!result) return;
 
-    if (!receipt || receipt.status !== 1) {
-      return res.status(500).json({
-        success: false,
-        error: "Transaction failed or reverted",
-      });
-    }
+    const { receipt } = result;
 
     await saveRecord("BUYER_CONFIRMED_DELIVERY", receipt, {
       orderId,
@@ -303,8 +252,6 @@ async function confirmDelivery(req, res, next) {
 
 /**
  * POST /api/orders/:orderId/force-release
- * Body: { privateKey, shipId }
- * Import customs force-releases escrow if buyer doesn't confirm.
  */
 async function forceRelease(req, res, next) {
   try {
@@ -312,22 +259,20 @@ async function forceRelease(req, res, next) {
     const { privateKey, shipId } = req.body;
 
     if (!privateKey || !shipId) {
-      return res.status(400).json({
-        success: false,
-        error: "privateKey and shipId are required",
-      });
+      return res.status(400).json({ success: false, error: "privateKey and shipId are required" });
     }
 
     const contract = getWriteContract(privateKey);
-    const tx = await contract.forceReleaseEscrow(BigInt(orderId), BigInt(shipId));
-    const receipt = await tx.wait(1, 60000);
+    const result = await safeContractCall({
+      contract,
+      method: "forceReleaseEscrow",
+      args: [BigInt(orderId), BigInt(shipId)],
+      context: "forceRelease",
+      res,
+    });
+    if (!result) return;
 
-    if (!receipt || receipt.status !== 1) {
-      return res.status(500).json({
-        success: false,
-        error: "Transaction failed or reverted",
-      });
-    }
+    const { receipt } = result;
 
     await saveRecord("FORCE_RELEASE_BY_CUSTOMS", receipt, {
       orderId,
@@ -348,9 +293,6 @@ async function forceRelease(req, res, next) {
 
 /**
  * POST /api/orders/:orderId/pay
- * Body: { data, signature, userAddress }
- * data: { sellerAddress, amount }
- * Buyer releases payment to the seller after delivery (verified via signature).
  */
 async function payOrder(req, res, next) {
   try {
@@ -358,65 +300,42 @@ async function payOrder(req, res, next) {
     const { data, signature, userAddress } = req.body;
 
     if (!data || !signature || !userAddress) {
-      return res.status(400).json({
-        success: false,
-        error: "data, signature, and userAddress are required",
-      });
+      return res.status(400).json({ success: false, error: "data, signature, and userAddress are required" });
     }
 
     const { sellerAddress, amount } = data;
     if (!sellerAddress || !amount) {
-      return res.status(400).json({
-        success: false,
-        error: "sellerAddress and amount are required in data",
-      });
+      return res.status(400).json({ success: false, error: "sellerAddress and amount are required in data" });
     }
 
-    // Step 1: Verify signature
     const message = JSON.stringify(data);
     let recoveredAddress;
     try {
       recoveredAddress = ethers.verifyMessage(message, signature);
     } catch (err) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid signature",
-      });
+      return res.status(401).json({ success: false, error: "Invalid signature" });
     }
 
     if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
-      return res.status(401).json({
-        success: false,
-        error: "Signature does not match user address",
-      });
+      return res.status(401).json({ success: false, error: "Signature does not match user address" });
     }
 
-    // Step 2: Hash the data
-    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
-
-    // Step 3: Call contract with backend private key
     if (!process.env.BACKEND_PRIVATE_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: "Backend private key not configured",
-      });
+      return res.status(500).json({ success: false, error: "Backend private key not configured" });
     }
 
+    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
     const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
-    const tx = await contract.pay(
-      userAddress,
-      sellerAddress,
-      BigInt(amount),
-      BigInt(orderId),
-    );
-    const receipt = await tx.wait(1, 60000);
+    const result = await safeContractCall({
+      contract,
+      method: "pay",
+      args: [userAddress, sellerAddress, BigInt(amount), BigInt(orderId)],
+      context: "payOrder",
+      res,
+    });
+    if (!result) return;
 
-    if (!receipt || receipt.status !== 1) {
-      return res.status(500).json({
-        success: false,
-        error: "Transaction failed or reverted",
-      });
-    }
+    const { receipt } = result;
 
     await saveRecord("ORDER_PAID", receipt, {
       orderId,
@@ -441,21 +360,33 @@ async function payOrder(req, res, next) {
 
 /**
  * GET /api/orders
- * Returns all orders by aggregating OrderCreated, OrderAccepted, and BatchCreated events.
  */
 async function getOrders(req, res, next) {
   try {
     const contract = getReadContract();
 
-    // Fetch all relevant events
-    const [createdEvents, acceptedEvents, batchEvents] = await Promise.all([
+    const [createdEvents, acceptedEvents, batchEvents, qualityEvents, shipmentEvents, customsEvents, paymentReleasedEvents] = await Promise.all([
       contract.queryFilter(contract.filters.OrderCreated(), 0, "latest"),
       contract.queryFilter(contract.filters.OrderAccepted(), 0, "latest"),
       contract.queryFilter(contract.filters.BatchCreated(), 0, "latest"),
+      contract.queryFilter(contract.filters.BatchQualityUpdated(), 0, "latest"),
+      contract.queryFilter(contract.filters.ShipmentRequested(), 0, "latest"),
+      contract.queryFilter(contract.filters.CustomsCleared(), 0, "latest"),
+      contract.queryFilter(contract.filters.PaymentReleased(), 0, "latest"),
     ]);
 
-    // Map to keep track of order state by orderId
     const ordersMap = new Map();
+
+    const Record = require("../models/Record");
+    const orderRecords = await Record.find({ recordType: "ORDER_CREATED" }).lean();
+    const orderAmountMap = new Map();
+    const orderDetailsMap = new Map();
+    orderRecords.forEach(r => {
+      if (r.rawData && r.rawData.orderId) {
+        orderAmountMap.set(String(r.rawData.orderId), r.rawData.amount || "0.00");
+        orderDetailsMap.set(String(r.rawData.orderId), r.rawData.details || "N/A");
+      }
+    });
 
     createdEvents.forEach((e) => {
       const id = e.args.orderId.toString();
@@ -465,8 +396,9 @@ async function getOrders(req, res, next) {
         seller: e.args.seller,
         buyer: e.args.buyer,
         status: "Created",
-        statusColor: "blue", // Created color
-        amount: "0.00",
+        statusColor: "blue",
+        amount: orderAmountMap.get(id) || "0.00",
+        details: orderDetailsMap.get(id) || "N/A",
         action: null,
       });
     });
@@ -478,24 +410,94 @@ async function getOrders(req, res, next) {
         order.status = "Accepted";
         order.statusColor = "green";
         order.action = "Create Batch";
-        // Format USDT (6 decimals typical for USDT, but here it's likely standard 18 token mock or wei)
         order.amount = ethers.formatEther(e.args.amount).toString();
       }
     });
 
+    const batchIdToOrderId = new Map();
+
     batchEvents.forEach((e) => {
-      const id = e.args.orderId.toString();
-      if (ordersMap.has(id)) {
-        const order = ordersMap.get(id);
+      const orderId = e.args.orderId.toString();
+      const batchId = e.args.batchId.toString();
+      batchIdToOrderId.set(batchId, orderId);
+
+      if (ordersMap.has(orderId)) {
+        const order = ordersMap.get(orderId);
+        order.batchId = batchId;
         order.status = "Batch Created";
         order.statusColor = "blue";
-        order.action = null; // Batch already created
+        order.action = null;
+      }
+    });
+
+    qualityEvents.forEach((e) => {
+      const batchId = e.args.batchId.toString();
+      const passed = e.args.status;
+      const orderId = batchIdToOrderId.get(batchId);
+
+      if (orderId && ordersMap.has(orderId)) {
+        const order = ordersMap.get(orderId);
+        if (passed) {
+          order.status = "QC Approved";
+          order.statusColor = "green";
+          order.action = "Request Shipment";
+        } else {
+          order.status = "QC Failed";
+          order.statusColor = "red";
+          order.action = null;
+        }
+      }
+    });
+
+    // Map shipId -> orderId for customs resolution
+    const shipIdToOrderId = new Map();
+
+    shipmentEvents.forEach((e) => {
+      const batchId = e.args.batchId.toString();
+      const shipId = e.args.shipId.toString();
+      const orderId = batchIdToOrderId.get(batchId);
+
+      if (orderId && ordersMap.has(orderId)) {
+        const order = ordersMap.get(orderId);
+        order.status = "Shipment Requested";
+        order.statusColor = "yellow";
+        order.action = null;
+        order.shipId = shipId;
+        shipIdToOrderId.set(shipId, orderId);
+      }
+    });
+
+    customsEvents.forEach((e) => {
+      const shipId = e.args.shipId.toString();
+      const authorityType = e.args.authorityType; // "Export" or "Import"
+      const orderId = shipIdToOrderId.get(shipId);
+
+      if (orderId && ordersMap.has(orderId)) {
+        const order = ordersMap.get(orderId);
+        if (authorityType === "Export") {
+          order.status = "Export Cleared";
+          order.statusColor = "yellow";
+        } else if (authorityType === "Import") {
+          order.status = "Import Cleared";
+          order.statusColor = "purple";
+        }
+        order.action = null;
+      }
+    });
+
+    paymentReleasedEvents.forEach((e) => {
+      const orderId = e.args.orderId.toString();
+      if (ordersMap.has(orderId)) {
+        const order = ordersMap.get(orderId);
+        order.status = "Delivered & Paid";
+        order.statusColor = "green";
+        order.action = null;
       }
     });
 
     res.json({
       success: true,
-      data: Array.from(ordersMap.values()).reverse(), // Newest first
+      data: Array.from(ordersMap.values()).reverse(),
     });
   } catch (err) {
     next(err);

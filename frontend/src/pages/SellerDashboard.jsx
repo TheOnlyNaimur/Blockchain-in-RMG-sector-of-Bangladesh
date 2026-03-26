@@ -5,8 +5,11 @@ import StatusBadge from "../components/ui/StatusBadge";
 import Toast from "../components/ui/Toast";
 import { useUser } from "../contexts/UserContext";
 import { useWallet } from "../hooks/useWallet";
+import { useAccount } from "wagmi";
 import { useBatchCreation } from "../hooks/useBatches";
+import { useShipmentRequest } from "../hooks/useShipments";
 import { useOrdersFetching, useOrderCreation } from "../hooks";
+import { ROLES } from "../config/contracts";
 
 export default function SellerDashboard() {
   const { userProfile } = useUser();
@@ -17,35 +20,47 @@ export default function SellerDashboard() {
     error: batchError,
   } = useBatchCreation();
   const { execute: createOrder, loading: creatingOrder } = useOrderCreation();
-  const { data: allOrders = [], loading: ordersLoading, refetch: refetchOrders } = useOrdersFetching();
+  const { execute: requestShipment, loading: requestingShipment } = useShipmentRequest();
+  const { data: allOrdersRaw, loading: ordersLoading, refetch: refetchOrders } = useOrdersFetching();
+  const allOrders = allOrdersRaw ?? [];
   
   const [orders, setOrders] = useState([]);
   const [showCreateBatch, setShowCreateBatch] = useState(false);
+  const [showRequestShipment, setShowRequestShipment] = useState(false);
   const [showCertificate, setShowCertificate] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [batchOrder, setBatchOrder] = useState(null);
+  const [shipmentOrder, setShipmentOrder] = useState(null);
   const [toast, setToast] = useState(null);
+  const [freightForwarderAddress, setFreightForwarderAddress] = useState(ROLES.freightForwarder || "");
 
   // Form state
   const [buyerAddress, setBuyerAddress] = useState("");
   const [details, setDetails] = useState("");
   const [hsCode, setHsCode] = useState("");
   const [destination, setDestination] = useState("");
+  const [amount, setAmount] = useState("");
+
+  const { address: walletAddress } = useAccount();
 
   useEffect(() => {
-    if (userProfile?.address && allOrders.length > 0) {
-      setOrders(allOrders.filter(o => o.seller.toLowerCase() === userProfile.address.toLowerCase()));
+    const addr = userProfile?.address || walletAddress;
+    if (addr && allOrders.length > 0) {
+      setOrders(allOrders.filter(o => o.seller.toLowerCase() === addr.toLowerCase()));
+    } else if (allOrders.length > 0) {
+      setOrders(allOrders);
     }
-  }, [allOrders, userProfile]);
+  }, [allOrders, userProfile, walletAddress]);
 
   const handleSubmitOrder = async () => {
-    if (!buyerAddress || !details) return;
+    if (!buyerAddress || !details || !amount) return;
     try {
-      const result = await createOrder({ buyerAddress, details, hsCode, destination });
+      const result = await createOrder({ buyerAddress, details, amount, hsCode, destination });
       setToast({ message: `Order proposed! Tx: ${result.txHash.slice(0, 10)}... ID: ${result.orderId}`, type: "success", icon: "check_circle" });
       refetchOrders();
       setBuyerAddress("");
       setDetails("");
+      setAmount("");
       setHsCode("");
       setDestination("");
     } catch (err) {
@@ -63,7 +78,7 @@ export default function SellerDashboard() {
     try {
       // Call the hook with batch creation data
       const result = await createBatch({
-        orderId: batchOrder.id,
+        orderId: batchOrder.orderId,
         productInfo: `Batch for order ${batchOrder.id} - Amount: ${batchOrder.amount}`,
       });
 
@@ -92,6 +107,28 @@ export default function SellerDashboard() {
         type: "error",
         icon: "error",
       });
+    }
+  };
+
+  const handleShipmentSubmit = async () => {
+    if (!shipmentOrder || !isConnected) return;
+    try {
+      const result = await requestShipment({
+        batchId: shipmentOrder.batchId,
+        freightForwarderAddress: freightForwarderAddress || undefined, // undefined falls back to process.env.FREIGHT_FORWARDER_ADDRESS in backend for testing ease
+      });
+
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === shipmentOrder.id
+            ? { ...o, status: "Shipment Requested", statusColor: "blue", action: null }
+            : o
+        )
+      );
+      setShowRequestShipment(false);
+      setToast({ message: `Shipment requested! Tx: ${result.txHash?.slice(0, 10)}... Ship ID: ${result.shipId}`, type: "success", icon: "check_circle" });
+    } catch (err) {
+      setToast({ message: `Failed to request shipment: ${err.message || "Unknown error"}`, type: "error", icon: "error" });
     }
   };
 
@@ -257,6 +294,16 @@ export default function SellerDashboard() {
                             >
                               {creatingBatch ? "Creating..." : "Create Batch"}
                             </button>
+                          ) : order.action === "Request Shipment" ? (
+                            <button
+                              onClick={() => {
+                                setShipmentOrder(order);
+                                setShowRequestShipment(true);
+                              }}
+                              className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 bg-green-500 text-background-dark text-xs font-bold hover:bg-green-400 transition-colors shadow-sm"
+                            >
+                              Request Shipment
+                            </button>
                           ) : order.action === "delete" ? (
                             <button className="text-text-secondary hover:text-white transition-colors">
                               <span className="material-symbols-outlined text-[18px]">
@@ -265,9 +312,21 @@ export default function SellerDashboard() {
                             </button>
                           ) : (
                             <span className="text-xs text-text-secondary italic">
-                              {order.statusColor === "blue"
+                              {order.status === "Created"
                                 ? "Waiting for Buyer"
-                                : "Escrow Processing"}
+                                : order.status === "Batch Created"
+                                  ? "Awaiting QC"
+                                  : order.status === "QC Failed"
+                                    ? "QC Rejected"
+                                    : order.status === "Shipment Requested"
+                                      ? "In Transit"
+                                      : order.status === "Export Cleared"
+                                        ? "Awaiting Import Tracker"
+                                        : order.status === "Import Cleared"
+                                          ? "Awaiting Delivery Conf."
+                                          : order.status === "Delivered & Paid"
+                                            ? "Completed & Paid"
+                                            : "Processing"}
                             </span>
                           )}
                         </td>
@@ -341,6 +400,24 @@ export default function SellerDashboard() {
                     disabled={creatingOrder}
                   ></textarea>
                 </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-white">
+                    Order Value (USDT)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary font-mono">
+                      $
+                    </span>
+                    <input
+                      className="w-full bg-border-dark border-none rounded-lg py-2.5 pl-8 pr-4 text-white placeholder:text-text-secondary focus:ring-1 focus:ring-primary text-sm font-mono"
+                      placeholder="0.00"
+                      type="number"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                      disabled={creatingOrder}
+                    />
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium text-white">
@@ -374,7 +451,7 @@ export default function SellerDashboard() {
                   className="flex w-full items-center justify-center rounded-lg h-11 px-4 bg-primary hover:bg-primary-hover text-background-dark text-sm font-bold transition-colors shadow-lg shadow-primary/20 disabled:opacity-50"
                   type="button"
                   onClick={handleSubmitOrder}
-                  disabled={creatingOrder || !buyerAddress || !details}
+                  disabled={creatingOrder || !buyerAddress || !details || !amount}
                 >
                   {creatingOrder ? (
                     <span className="material-symbols-outlined animate-spin text-lg">
@@ -781,6 +858,83 @@ export default function SellerDashboard() {
                   </span>
                   Save Changes
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* ── REQUEST SHIPMENT MODAL ── */}
+        {showRequestShipment && shipmentOrder && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setShowRequestShipment(false)}
+          >
+            <div
+              className="w-full max-w-lg bg-surface-dark border border-border-dark rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 border-b border-border-dark bg-surface-darker flex justify-between items-start">
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <span className="material-symbols-outlined text-green-500">
+                      local_shipping
+                    </span>
+                    Request Shipment
+                  </h3>
+                  <p className="text-text-secondary text-sm mt-1">
+                    Assign a Freight Forwarder for Batch #{shipmentOrder.batchId}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowRequestShipment(false)}
+                  className="text-text-secondary hover:text-white transition-colors"
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+
+              <div className="p-6 space-y-5">
+                <div className="p-4 rounded-lg bg-background-dark border border-border-dark">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-xs text-text-secondary uppercase tracking-wider">Order</span>
+                      <p className="text-white font-mono font-medium">{shipmentOrder.id}</p>
+                    </div>
+                    <div>
+                      <span className="text-xs text-text-secondary uppercase tracking-wider">Batch</span>
+                      <p className="text-white font-mono">#{shipmentOrder.batchId}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-white">Freight Forwarder Wallet</label>
+                  <input
+                    className="w-full bg-background-dark border border-border-dark text-white font-mono text-sm rounded-lg focus:ring-primary focus:border-primary p-3"
+                    placeholder="0x... (Leave empty for default network FF)"
+                    value={freightForwarderAddress}
+                    onChange={(e) => setFreightForwarderAddress(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-border-dark bg-surface-darker flex justify-between items-center">
+                <p className="text-xs text-text-secondary">FF will handle export documentation.</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowRequestShipment(false)}
+                    disabled={requestingShipment}
+                    className="px-4 py-2 text-sm font-medium text-white border border-border-dark rounded-lg hover:bg-border-dark disabled:opacity-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleShipmentSubmit}
+                    disabled={requestingShipment}
+                    className="px-5 py-2 text-sm font-bold text-background-dark bg-green-500 hover:bg-green-400 disabled:opacity-50 rounded-lg transition-colors flex items-center gap-2"
+                  >
+                    {requestingShipment ? "Requesting..." : "Assign Forwarder"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

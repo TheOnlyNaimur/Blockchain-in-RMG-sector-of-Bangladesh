@@ -3,6 +3,9 @@ import { apiClient, ApiResponse } from "./client";
 export interface OrderData {
   details: string;
   buyerAddress: string;
+  amount: string;
+  hsCode?: string;
+  destination?: string;
 }
 
 export interface OrderCreateRequest {

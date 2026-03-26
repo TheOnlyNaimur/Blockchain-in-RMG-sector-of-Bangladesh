@@ -15,27 +15,30 @@ export default function SellerRegistration() {
   const [contact, setContact] = useState("");
   const [terms, setTerms] = useState(false);
   const [successTxHash, setSuccessTxHash] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [validationError, setValidationError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setValidationError("");
 
     try {
       if (!walletClient || !address) {
-        alert("Please connect your wallet first");
+        setValidationError("Please connect your wallet first");
         setIsLoading(false);
         return;
       }
 
       if (!tin || !contact) {
-        alert("Please fill in all required fields");
+        setValidationError("Please fill in all required fields (TIN and Contact Number)");
         setIsLoading(false);
         return;
       }
 
       // Step 1: Create message from form data
-      const formData = { name, tinid: Number(tin), number: Number(contact) };
+      const cleanTin = Number(tin.replace(/\D/g, ""));
+      const cleanContact = Number(contact.replace(/\D/g, ""));
+      const formData = { name, tinid: cleanTin, number: cleanContact };
       const message = JSON.stringify(formData);
 
       // Step 2: Sign message with MetaMask (MetaMask will pop up for signature)
@@ -62,8 +65,9 @@ export default function SellerRegistration() {
         navigate("/seller/dashboard");
       }, 2000);
     } catch (err) {
+      // Error is already set in the hook's `error` state and displayed in the modal UI above.
+      // We just log here for debugging — no need for an alert().
       console.error("Registration failed:", err);
-      alert(`Registration failed: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -140,7 +144,22 @@ export default function SellerRegistration() {
           {/* Form */}
           <div className="p-8 overflow-y-auto">
             <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
-              {/* Error Message */}
+              {/* Validation Error Message */}
+              {validationError && (
+                <div className="p-4 rounded-lg bg-orange-500/10 border border-orange-500/30 flex items-start gap-3">
+                  <span className="material-symbols-outlined text-orange-500 mt-1">
+                    warning
+                  </span>
+                  <div>
+                    <p className="text-xs text-orange-500 uppercase font-bold tracking-wider mb-1">
+                      Validation Error
+                    </p>
+                    <p className="text-white text-sm">{validationError}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* API Hook Error Message */}
               {error && (
                 <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-3">
                   <span className="material-symbols-outlined text-red-500 mt-1">
@@ -236,26 +255,6 @@ export default function SellerRegistration() {
               </div>
 
               {/* Contact */}
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-white">
-                  Contact Number
-                </label>
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                    <span className="material-symbols-outlined text-text-secondary text-lg group-focus-within:text-primary">
-                      call
-                    </span>
-                  </div>
-                  <input
-                    className="w-full bg-[#111813] border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary block p-3 pl-10 placeholder-[#5c7263]"
-                    placeholder="+1 (555) 000-0000"
-                    value={contact}
-                    onChange={(e) => setContact(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              {/* Private Key */}
               <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium text-white">
                   Contact Number

@@ -15,14 +15,15 @@ export default function QCBatchReview() {
   useEffect(() => {
     if (batchData?.created) {
       const mapped = batchData.created.map((c) => {
-        const qualityEvent = batchData.quality?.find((q) => q.batchId === c.batchId);
+        const qualityEvents = batchData.quality || [];
+        const qualityEvent = [...qualityEvents].reverse().find((q) => q.batchId === c.batchId);
         return {
           id: c.batchId,
           order: c.orderId,
-          seller: batchData.seller ? `${batchData.seller.slice(0, 8)}...` : "Unknown Seller",
+          seller: c.seller ? `${c.seller.slice(0, 8)}...` : "Unknown Seller",
           initials: "BS",
-          product: c.productInfoHash.substring(0, 10) + "...",
-          qty: "N/A",
+          product: c.productInfo ? c.productInfo.split('- Amount:')[0]?.trim() || "N/A" : c.productInfoHash.substring(0, 10) + "...",
+          qty: c.productInfo && c.productInfo.includes('- Amount:') ? `${c.productInfo.split('- Amount:')[1]?.trim()} USDT` : "N/A",
           time: new Date(c.timestamp?.[0] ? c.timestamp[0] * 1000 : Date.now()).toLocaleString(),
           status: qualityEvent ? (qualityEvent.status ? "Approved" : "Rejected") : "Pending",
           hash: c.productInfoHash,
@@ -44,19 +45,20 @@ export default function QCBatchReview() {
     try {
       const result = await qualityCheck({
         batchId: selectedBatch.id,
-        data: {
-          status: "approved",
-          comments: "Batch approved - meets all quality standards",
-          certificationNumber: `CERT-${Date.now()}`,
-        },
+        status: true,
       });
       setSuccessMessage(`Batch approved! Transaction: ${result.txHash}`);
-      // Update batch status in list
+      // Update local states manually for instant feedback
       setBatches((prev) =>
         prev.map((b) =>
           b.id === selectedBatch.id ? { ...b, status: "Approved" } : b,
         ),
       );
+      setSelectedBatch((prev) => prev ? { ...prev, status: "Approved" } : prev);
+      
+      // Auto-trigger refetch from the backend to guarantee consistency
+      refetch();
+      
       setTimeout(() => {
         setSuccessMessage("");
         setProcessingBatchId(null);
@@ -75,12 +77,19 @@ export default function QCBatchReview() {
     try {
       const result = await qualityCheck({
         batchId: selectedBatch.id,
-        data: {
-          status: "rejected",
-          comments: "Batch rejected - failed quality standards",
-        },
+        status: false,
       });
       setSuccessMessage(`Batch rejected! Transaction: ${result.txHash}`);
+      
+      // Update local states manually for instant feedback
+      setBatches((prev) =>
+        prev.map((b) =>
+          b.id === selectedBatch.id ? { ...b, status: "Rejected" } : b,
+        ),
+      );
+      setSelectedBatch((prev) => prev ? { ...prev, status: "Rejected" } : prev);
+      refetch();
+      
       setTimeout(() => {
         setSuccessMessage("");
         setProcessingBatchId(null);
@@ -262,12 +271,28 @@ export default function QCBatchReview() {
                           </td>
                           <td className="px-6 py-4">
                             <span
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${isActive ? "bg-yellow-900/30 text-yellow-500" : "bg-slate-800 text-slate-400"}`}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                                b.status === "Approved"
+                                  ? "bg-green-900/30 text-green-400"
+                                  : b.status === "Rejected"
+                                    ? "bg-red-900/30 text-red-400"
+                                    : isActive
+                                      ? "bg-yellow-900/30 text-yellow-500"
+                                      : "bg-slate-800 text-slate-400"
+                              }`}
                             >
                               <span
-                                className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-yellow-500" : "bg-slate-500"}`}
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  b.status === "Approved"
+                                    ? "bg-green-400"
+                                    : b.status === "Rejected"
+                                      ? "bg-red-400"
+                                      : isActive
+                                        ? "bg-yellow-500"
+                                        : "bg-slate-500"
+                                }`}
                               ></span>
-                              {isActive ? "Reviewing" : b.status}
+                              {b.status === "Approved" ? "Approved" : b.status === "Rejected" ? "Rejected" : isActive ? "Reviewing" : "Pending"}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-right">
@@ -326,8 +351,14 @@ export default function QCBatchReview() {
                           {selectedBatch.seller}
                         </p>
                       </div>
-                      <span className="inline-flex items-center gap-1 rounded-md bg-blue-900/20 px-2 py-1 text-xs font-medium text-blue-400 ring-1 ring-inset ring-blue-700/10">
-                        QC Stage 2
+                      <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${
+                        selectedBatch.status === "Approved"
+                          ? "bg-green-900/20 text-green-400 ring-green-700/10"
+                          : selectedBatch.status === "Rejected"
+                            ? "bg-red-900/20 text-red-400 ring-red-700/10"
+                            : "bg-blue-900/20 text-blue-400 ring-blue-700/10"
+                      }`}>
+                        {selectedBatch.status === "Approved" ? "✓ Approved" : selectedBatch.status === "Rejected" ? "✕ Rejected" : "QC Stage 2"}
                       </span>
                     </div>
 
@@ -377,7 +408,7 @@ export default function QCBatchReview() {
                       <button
                         onClick={handleRejectBatch}
                         disabled={
-                          loading || processingBatchId === selectedBatch.id
+                          loading || processingBatchId === selectedBatch.id || selectedBatch.status === "Approved" || selectedBatch.status === "Rejected"
                         }
                         className="flex items-center justify-center gap-2 rounded-lg border-2 border-red-500/30 bg-transparent py-3 text-sm font-bold text-red-400 hover:bg-red-900/20 hover:border-red-500 transition-all disabled:opacity-50"
                       >
@@ -397,7 +428,7 @@ export default function QCBatchReview() {
                       <button
                         onClick={handleApproveBatch}
                         disabled={
-                          loading || processingBatchId === selectedBatch.id
+                          loading || processingBatchId === selectedBatch.id || selectedBatch.status === "Approved" || selectedBatch.status === "Rejected"
                         }
                         className="flex items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-bold text-background-dark shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all disabled:opacity-50"
                       >

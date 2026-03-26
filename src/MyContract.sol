@@ -350,7 +350,7 @@ contract MyContract {
         if (o.status != 0)  revert InvalidStatus();
         if (_amount == 0)   revert InsufficientPayment();
 
-        bool ok = usdt.transferFrom(msg.sender, address(this), _amount);
+        bool ok = usdt.transferFrom(_buyer, address(this), _amount);
         if (!ok) revert TransferFailed();
 
         o.status   = 1;

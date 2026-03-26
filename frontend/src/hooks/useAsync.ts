@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { ApiError } from "../api";
 
 interface UseAsyncState<T> {
@@ -56,22 +56,34 @@ export function createAsyncFn<T, V>(
  * Use for GET operations
  */
 export function useFetch<T>(fetchFunction: () => Promise<T>, immediate = true) {
-  const [data, setData] = useState<T | null>(null);
+  const [data, setData] = useState<T | undefined>(undefined);
   const [loading, setLoading] = useState(immediate);
   const [error, setError] = useState<ApiError | null>(null);
 
-  const refetch = async () => {
+  // Store the latest fetchFunction in a ref to avoid infinite loops when it's passed inline
+  const fetchFnRef = React.useRef(fetchFunction);
+  useEffect(() => {
+    fetchFnRef.current = fetchFunction;
+  }, [fetchFunction]);
+
+  const refetch = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchFunction();
+      const result = await fetchFnRef.current();
       setData(result);
     } catch (err) {
       setError(err as ApiError);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (immediate) {
+      refetch();
+    }
+  }, [immediate, refetch]);
 
   return { data, loading, error, refetch };
 }

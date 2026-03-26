@@ -15,14 +15,16 @@ export default function BuyerRegistration() {
   const [terms, setTerms] = useState(false);
   const [successTxHash, setSuccessTxHash] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [validationError, setValidationError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    setValidationError("");
 
     try {
       if (!walletClient || !address) {
-        alert("Please connect your wallet first");
+        setValidationError("Please connect your wallet first");
         setIsLoading(false);
         return;
       }
@@ -55,7 +57,7 @@ export default function BuyerRegistration() {
       }, 2000);
     } catch (err) {
       console.error("Registration failed:", err);
-      alert(`Registration failed: ${err.message}`);
+      // Removed alert, the UI displays `error` from the hook
     } finally {
       setIsLoading(false);
     }
@@ -131,7 +133,22 @@ export default function BuyerRegistration() {
 
           <div className="p-8 overflow-y-auto">
             <form className="flex flex-col gap-6" onSubmit={handleSubmit}>
-              {/* Error Message */}
+              {/* Validation Error Message */}
+              {validationError && (
+                <div className="p-4 rounded-lg bg-orange-500/10 border border-orange-500/30 flex items-start gap-3">
+                  <span className="material-symbols-outlined text-orange-500 mt-1">
+                    warning
+                  </span>
+                  <div>
+                    <p className="text-xs text-orange-500 uppercase font-bold tracking-wider mb-1">
+                      Validation Error
+                    </p>
+                    <p className="text-white text-sm">{validationError}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* API Hook Error Message */}
               {error && (
                 <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-3">
                   <span className="material-symbols-outlined text-red-500 mt-1">

@@ -6,7 +6,10 @@ import StatCard from "../components/ui/StatCard";
 import Toast from "../components/ui/Toast";
 import { useUser } from "../contexts/UserContext";
 import { useWallet } from "../hooks/useWallet";
+import { useAccount } from "wagmi";
 import { useOrderAcceptance, useOrderPayment, useOrdersFetching } from "../hooks";
+import { ethers } from "ethers";
+import { CONTRACT_CONFIG } from "../config/contracts";
 
 export default function BuyerDashboard() {
   const { userProfile } = useUser();
@@ -31,11 +34,17 @@ export default function BuyerDashboard() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [toast, setToast] = useState(null);
 
+  const { address: walletAddress } = useAccount();
+
   useEffect(() => {
-    if (userProfile?.address && allOrders.length > 0) {
-      setOrders(allOrders.filter(o => o.buyer.toLowerCase() === userProfile.address.toLowerCase()));
+    const addr = userProfile?.address || walletAddress;
+    if (addr && allOrders.length > 0) {
+      setOrders(allOrders.filter(o => o.buyer.toLowerCase() === addr.toLowerCase()));
+    } else if (allOrders.length > 0) {
+      // If no address can be determined, show all orders so the dashboard isn't blank
+      setOrders(allOrders);
     }
-  }, [allOrders, userProfile]);
+  }, [allOrders, userProfile, walletAddress]);
 
   const handleReview = (order) => {
     setSelectedOrder(order);
@@ -43,17 +52,37 @@ export default function BuyerDashboard() {
   };
   const handleAccept = (order) => {
     setSelectedOrder(order);
+    setAmountToEscrow(order.amount ? order.amount.replace(/[^0-9.]/g, "") : "");
     setShowAcceptModal(true);
   };
 
   const handleAcceptOrder = async () => {
     if (!selectedOrder || !isConnected) return;
     try {
+      if (!window.ethereum) throw new Error("No ethereum provider found. Install MetaMask!");
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      const usdtContract = new ethers.Contract(
+        CONTRACT_CONFIG.usdt,
+        ["function approve(address spender, uint256 amount) public returns (bool)"],
+        signer
+      );
+
+      setToast({ message: "Approving USDT transfer in MetaMask...", type: "info", icon: "hourglass_empty" });
+      const amountWei = ethers.parseEther(amountToEscrow.toString());
+      
+      const tx = await usdtContract.approve(CONTRACT_CONFIG.address, amountWei);
+      setToast({ message: "Waiting for USDT approval transaction to mine...", type: "info", icon: "hourglass_empty" });
+      await tx.wait();
+
+      setToast({ message: "Approval successful! Now accepting order...", type: "info", icon: "hourglass_empty" });
+
       // Call the hook with order acceptance data
       const numericalOrderId = selectedOrder.orderId;
       const result = await acceptOrder({
         orderId: numericalOrderId,
-        data: { orderId: numericalOrderId, amount: amountToEscrow },
+        data: { orderId: numericalOrderId, amount: amountWei.toString() },
       });
 
       // Update order status in UI
@@ -84,11 +113,14 @@ export default function BuyerDashboard() {
     try {
       // Call the hook with payment data
       const numericalOrderId = selectedOrder.orderId;
+      const rawAmount = selectedOrder.amount.replace(/[$,]/g, "");
+      const amountWei = ethers.parseEther(rawAmount).toString();
+      
       const result = await payOrder({
         orderId: numericalOrderId,
         data: {
           sellerAddress: selectedOrder.seller || "0x" + "0".repeat(40),
-          amount: selectedOrder.amount.replace(/[$,]/g, ""),
+          amount: amountWei,
         },
       });
 
@@ -121,7 +153,7 @@ export default function BuyerDashboard() {
       setToast({ message: "Confirming delivery on-chain...", type: "info", icon: "hourglass_empty" });
 
       const numericalOrderId = order.orderId;
-      const shipId = order.shipments?.[0]?.shipId || "1"; // Prefer actual shipId, fallback to 1
+      const shipId = order.shipId || "1";
 
       const payloadData = { action: "confirm", orderId: numericalOrderId };
       const { signature, userAddress } = await createSignedPayload(payloadData);
@@ -233,20 +265,21 @@ export default function BuyerDashboard() {
           />
           <StatCard
             label="Pending Action"
-            value={(orders || []).filter(o => o.status === "Pending" || o.status === "Accepted").length.toString()}
+            value={(orders || []).filter(o => o.status === "Created" || o.status === "Import Cleared").length.toString()}
             change="Action Req."
             icon="pending_actions"
+            changeColor="text-orange-500"
           />
           <StatCard
-            label="Escrow Locked"
-            value={`${(orders || []).filter(o => o.amount && o.statusColor !== "green").reduce((acc, curr) => acc + Number(curr.amount), 0)} USDT`}
-            change="Secured"
-            icon="lock"
+            label="In Progress"
+            value={(orders || []).filter(o => ["Accepted", "Batch Created", "QC Approved", "Shipment Requested", "Export Cleared"].includes(o.status)).length.toString()}
+            change="Processing"
+            icon="local_shipping"
           />
           <StatCard
             label="Completed"
-            value={(orders || []).filter(o => o.statusColor === "green").length.toString()}
-            change="Delivered"
+            value={(orders || []).filter(o => o.status === "Delivered & Paid").length.toString()}
+            change="Fund Released"
             icon="check_circle"
           />
         </div>
@@ -281,11 +314,11 @@ export default function BuyerDashboard() {
                 {orders.map((order) => (
                   <tr
                     key={order.id}
-                    className={`group hover:bg-border-dark/30 transition-colors ${order.statusColor === "blue" ? "bg-border-dark/10" : ""}`}
+                    className={`group hover:bg-border-dark/30 transition-colors ${(order.status === "Created" || order.status === "Import Cleared") ? "bg-border-dark/10" : ""}`}
                   >
                     <td className="px-6 py-4 relative">
-                      {order.statusColor === "blue" && (
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary"></div>
+                      {(order.status === "Created" || order.status === "Import Cleared") && (
+                        <div className={`absolute left-0 top-0 bottom-0 w-1 ${order.status === "Import Cleared" ? "bg-purple-500" : "bg-primary"}`}></div>
                       )}
                       <span className="text-white font-mono font-medium text-sm">
                         {order.id}
@@ -328,57 +361,50 @@ export default function BuyerDashboard() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {order.statusColor === "blue" ? (
+                        {order.status === "Created" ? (
                           <button
                             onClick={() => handleAccept(order)}
                             disabled={acceptingOrder || payingOrder}
                             className="bg-primary text-background-dark px-4 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-primary/20 hover:bg-primary/90 disabled:opacity-50 transition-all"
                           >
-                            {acceptingOrder ? "Accepting..." : "Accept"}
+                            {acceptingOrder ? "Accepting..." : "Accept & Escrow"}
                           </button>
-                        ) : order.statusColor === "yellow" ? (
+                        ) : order.status === "Import Cleared" ? (
                           <button
-                            onClick={() => handleReview(order)}
-                            disabled={acceptingOrder || payingOrder}
-                            className="bg-border-dark text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-[#34463b] disabled:opacity-50 transition-all flex items-center gap-1"
+                            onClick={() => handleConfirmDelivery(order)}
+                            className="bg-[#10b981] hover:bg-[#059669] text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-[#10b981]/20 transition-all flex items-center gap-1"
                           >
                             <span className="material-symbols-outlined text-[16px]">
-                              visibility
+                              check_circle
                             </span>{" "}
-                            Review
+                            Confirm & Release Fund
                           </button>
-                        ) : order.statusColor === "purple" ? (
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleReview(order)}
-                              className="text-text-secondary hover:text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1"
-                            >
-                              <span className="material-symbols-outlined text-[16px]">
-                                local_shipping
-                              </span>{" "}
-                              Track
-                            </button>
-                            <button
-                              onClick={() => handleConfirmDelivery(order)}
-                              className="bg-[#10b981] hover:bg-[#059669] text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-[#10b981]/20 transition-all flex items-center gap-1"
-                            >
-                              <span className="material-symbols-outlined text-[16px]">
-                                check_circle
-                              </span>{" "}
-                              Confirm Delivery
-                            </button>
-                          </div>
+                        ) : order.status === "Delivered & Paid" ? (
+                          <span className="inline-flex items-center gap-1 text-green-400 text-sm font-medium">
+                            <span className="material-symbols-outlined text-[16px]">
+                              verified
+                            </span>
+                            Completed
+                          </span>
                         ) : (
-                          <button
-                            onClick={() => handleReview(order)}
-                            disabled={acceptingOrder || payingOrder}
-                            className="text-text-secondary hover:text-white px-3 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50 transition-all flex items-center gap-1"
-                          >
-                            <span className="material-symbols-outlined text-[16px]">
-                              local_shipping
-                            </span>{" "}
-                            Track
-                          </button>
+                          <span className="inline-flex items-center gap-1 text-text-secondary text-xs italic">
+                            <span className="material-symbols-outlined text-[14px]">
+                              hourglass_top
+                            </span>
+                            {order.status === "Accepted"
+                              ? "Awaiting Batch"
+                              : order.status === "Batch Created"
+                                ? "Awaiting QC"
+                                : order.status === "QC Approved"
+                                  ? "Awaiting Shipment"
+                                  : order.status === "Shipment Requested"
+                                    ? "In Transit"
+                                    : order.status === "Export Cleared"
+                                      ? "Awaiting Import"
+                                      : order.status === "QC Failed"
+                                        ? "QC Failed"
+                                        : "Processing..."}
+                          </span>
                         )}
                       </div>
                     </td>

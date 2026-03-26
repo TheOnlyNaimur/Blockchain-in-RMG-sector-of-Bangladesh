@@ -24,6 +24,24 @@ export const UserProvider = ({ children }) => {
       } else if (detectedRole) {
         // If no custom role, use auto-detected role
         setUserRole(detectedRole);
+        // Auto-populate a basic profile so Settings page isn't empty
+        const roleLabels = {
+          certifier: "Certifier",
+          qualityChecker: "Quality Inspector",
+          freightForwarder: "Freight Forwarder",
+          exportCustoms: "Export Customs Officer",
+          importCustoms: "Import Customs Officer",
+          complianceChecker: "Compliance Auditor",
+          seller: "Seller",
+          buyer: "Buyer",
+        };
+        setUserProfile({
+          address,
+          displayName: roleLabels[detectedRole] || detectedRole,
+          role: detectedRole,
+          email: "",
+          contactNumber: "",
+        });
         console.log(`✓ Auto-set role from address detection: ${detectedRole}`);
       } else {
         // No role detected - user might be seller/buyer (self-registered)

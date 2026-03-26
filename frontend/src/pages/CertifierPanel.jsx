@@ -163,8 +163,8 @@ export default function CertifierPanel() {
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <StatCard label="Pending Review" value={(allSellers || []).filter((s) => !s.businessLicenseHash).length.toString()} icon="pending_actions" />
-          <StatCard label="Approved Total" value={(allSellers || []).filter((s) => s.businessLicenseHash).length.toString()} icon="verified" />
+          <StatCard label="Pending Review" value={(allSellers || []).filter((s) => s.status === "pending").length.toString()} icon="pending_actions" />
+          <StatCard label="Approved Total" value={(allSellers || []).filter((s) => s.status === "approved").length.toString()} icon="verified" />
           <StatCard label="Total Submissions" value={(allSellers || []).length.toString()} icon="domain" />
           <StatCard label="Avg. Wait Time" value="< 1 Sec" icon="schedule" />
         </div>

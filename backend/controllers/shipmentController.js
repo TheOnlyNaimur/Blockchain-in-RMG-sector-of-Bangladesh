@@ -4,23 +4,18 @@ const {
   getRoleContract,
 } = require("../config/contract");
 const saveRecord = require("../utils/saveRecord");
+const { safeContractCall } = require("../utils/contractErrors");
 const { ethers } = require("ethers");
 
 /**
  * POST /api/shipments
- * Body: { data, signature, userAddress }
- * data: { batchId, freightForwarderAddress }
- * Seller requests shipment for a quality-approved batch (verified via signature).
  */
 async function requestShipment(req, res, next) {
   try {
     const { data, signature, userAddress } = req.body;
 
     if (!data || !signature || !userAddress) {
-      return res.status(400).json({
-        success: false,
-        error: "data, signature, and userAddress are required",
-      });
+      return res.status(400).json({ success: false, error: "data, signature, and userAddress are required" });
     }
 
     const { batchId } = data;
@@ -28,56 +23,42 @@ async function requestShipment(req, res, next) {
       data.freightForwarderAddress || process.env.FREIGHT_FORWARDER_ADDRESS;
 
     if (!batchId) {
-      return res.status(400).json({
-        success: false,
-        error: "batchId is required in data",
-      });
+      return res.status(400).json({ success: false, error: "batchId is required in data" });
     }
 
-    // Step 1: Verify signature
+    // Verify signature
     const message = JSON.stringify(data);
     let recoveredAddress;
     try {
       recoveredAddress = ethers.verifyMessage(message, signature);
     } catch (err) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid signature",
-      });
+      return res.status(401).json({ success: false, error: "Invalid signature" });
     }
 
     if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
-      return res.status(401).json({
-        success: false,
-        error: "Signature does not match user address",
-      });
+      return res.status(401).json({ success: false, error: "Signature does not match user address" });
     }
 
-    // Step 2: Hash the data
-    const dataHash = ethers.keccak256(ethers.toUtf8Bytes(message));
-
-    // Step 3: Call contract with backend private key
     if (!process.env.BACKEND_PRIVATE_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: "Backend private key not configured",
-      });
+      return res.status(500).json({ success: false, error: "Backend private key not configured" });
     }
 
     const contract = getWriteContract(process.env.BACKEND_PRIVATE_KEY);
-    const tx = await contract.shipReq(userAddress, BigInt(batchId), freightForwarderAddress);
-    const receipt = await tx.wait(1, 60000);
+    const result = await safeContractCall({
+      contract,
+      method: "shipReq",
+      args: [userAddress, BigInt(batchId), freightForwarderAddress],
+      context: "shipReq",
+      res,
+    });
+    if (!result) return;
 
-    if (!receipt || receipt.status !== 1) {
-      return res.status(500).json({
-        success: false,
-        error: "Transaction failed or reverted",
-      });
-    }
+    const { receipt } = result;
 
-    // Step 5: Parse event and save record
+    // Parse ShipmentRequested event
     const iface = contract.interface;
     let shipId = null;
+    let parsedOrderId = null;
     for (const log of receipt.logs) {
       try {
         const parsed = iface.parseLog(log);
@@ -88,13 +69,21 @@ async function requestShipment(req, res, next) {
       } catch (_) {}
     }
 
+    // Read orderId from the batch on-chain
+    try {
+      const readContract = getReadContract();
+      const batch = await readContract.batches(BigInt(batchId));
+      parsedOrderId = batch.orderId.toString();
+    } catch (_) {}
+
     await saveRecord("SHIPMENT_REQUESTED", receipt, {
       shipId,
       batchId,
+      orderId: parsedOrderId || batchId,
       freightForwarderAddress,
       sellerAddress: userAddress,
       signature,
-      dataHash,
+      dataHash: ethers.keccak256(ethers.toUtf8Bytes(message)),
     });
 
     res.status(201).json({
@@ -102,8 +91,7 @@ async function requestShipment(req, res, next) {
       txHash: receipt.hash,
       blockNumber: receipt.blockNumber,
       shipId,
-      message:
-        "Shipment request submitted. Freight forwarder must upload documents.",
+      message: "Shipment request submitted. Freight forwarder must upload documents.",
     });
   } catch (err) {
     next(err);
@@ -112,31 +100,17 @@ async function requestShipment(req, res, next) {
 
 /**
  * POST /api/shipments/:shipId/doc
- * Expects multipart/form-data with:
- *   - file: the document (PDF/image)
- *   - privateKey: freight forwarder's private key
- *   - docType: 0=CommercialInvoice, 1=PackingList, 2=BillOfLading, 3=CertificateOfOrigin
- *
- * Flow:
- * 1. Upload file to IPFS via Pinata → get CID
- * 2. Hash the CID → docHash (bytes32)
- * 3. Call contract.uploadExportDoc(shipId, docType, docHash) on-chain
- * 4. Save CID + metadata + docHash to MongoDB
  */
 async function uploadDocument(req, res, next) {
   try {
     const { shipId } = req.params;
     const { docType } = req.body;
-
     const DOC_TYPES = ["CommercialInvoice", "PackingList", "BillOfLading", "CertificateOfOrigin"];
 
     const privateKey = req.body.privateKey || process.env.FREIGHT_FORWARDER_PRIVATE_KEY;
 
     if (!privateKey) {
-      return res.status(400).json({
-        success: false,
-        error: "privateKey is required or backend not configured",
-      });
+      return res.status(400).json({ success: false, error: "privateKey is required or backend not configured" });
     }
 
     const docTypeNum = Number(docType);
@@ -148,13 +122,10 @@ async function uploadDocument(req, res, next) {
     }
 
     if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: "No file provided. Use multipart/form-data with field 'file'",
-      });
+      return res.status(400).json({ success: false, error: "No file provided. Use multipart/form-data with field 'file'" });
     }
 
-    // Step 1: Upload file to IPFS
+    // Upload to IPFS
     const { Readable } = require("stream");
     const { uploadToIPFS } = require("../utils/ipfs");
 
@@ -167,15 +138,21 @@ async function uploadDocument(req, res, next) {
       mimeType: req.file.mimetype,
     });
 
-    // Step 2: Hash the CID for on-chain storage
+    // Hash the CID for on-chain storage
     const docHash = ethers.keccak256(ethers.toUtf8Bytes(ipfsResult.cid));
 
-    // Step 3: Call contract with freight forwarder's private key
     const contract = getRoleContract(privateKey);
-    const tx = await contract.uploadExportDoc(BigInt(shipId), docTypeNum, docHash);
-    const receipt = await tx.wait();
+    const result = await safeContractCall({
+      contract,
+      method: "uploadExportDoc",
+      args: [BigInt(shipId), docTypeNum, docHash],
+      context: "uploadDoc",
+      res,
+    });
+    if (!result) return;
 
-    // Step 4: Save to MongoDB with CID reference
+    const { receipt } = result;
+
     await saveRecord("EXPORT_DOC_UPLOADED", receipt, {
       shipId,
       docType: DOC_TYPES[docTypeNum],
@@ -205,23 +182,26 @@ async function uploadDocument(req, res, next) {
 
 /**
  * POST /api/shipments/:shipId/export-verify
- * Body: { privateKey }
- * Export customs authority clears the shipment for export.
  */
 async function exportVerify(req, res, next) {
   try {
     const { shipId } = req.params;
     const privateKey = req.body.privateKey || process.env.EXPORT_CUSTOMS_PRIVATE_KEY;
     if (!privateKey) {
-      return res.status(400).json({
-        success: false,
-        error: "privateKey is required or backend not configured",
-      });
+      return res.status(400).json({ success: false, error: "privateKey is required or backend not configured" });
     }
 
     const contract = getRoleContract(privateKey);
-    const tx = await contract.expVerify(BigInt(shipId));
-    const receipt = await tx.wait();
+    const result = await safeContractCall({
+      contract,
+      method: "expVerify",
+      args: [BigInt(shipId)],
+      context: "exportVerify",
+      res,
+    });
+    if (!result) return;
+
+    const { receipt } = result;
 
     await saveRecord("EXPORT_CLEARED", receipt, {
       shipId,
@@ -241,23 +221,26 @@ async function exportVerify(req, res, next) {
 
 /**
  * POST /api/shipments/:shipId/import-verify
- * Body: { privateKey }
- * Import customs authority clears the shipment and triggers delivery confirmation.
  */
 async function importVerify(req, res, next) {
   try {
     const { shipId } = req.params;
     const privateKey = req.body.privateKey || process.env.IMPORT_CUSTOMS_PRIVATE_KEY;
     if (!privateKey) {
-      return res.status(400).json({
-        success: false,
-        error: "privateKey is required or backend not configured",
-      });
+      return res.status(400).json({ success: false, error: "privateKey is required or backend not configured" });
     }
 
     const contract = getRoleContract(privateKey);
-    const tx = await contract.impVerify(BigInt(shipId));
-    const receipt = await tx.wait();
+    const result = await safeContractCall({
+      contract,
+      method: "impVerify",
+      args: [BigInt(shipId)],
+      context: "importVerify",
+      res,
+    });
+    if (!result) return;
+
+    const { receipt } = result;
 
     await saveRecord("IMPORT_CLEARED", receipt, {
       shipId,
@@ -277,7 +260,6 @@ async function importVerify(req, res, next) {
 
 /**
  * GET /api/shipments/:shipId
- * Returns on-chain shipment data (from the public shipments mapping).
  */
 async function getShipment(req, res, next) {
   try {
@@ -294,7 +276,7 @@ async function getShipment(req, res, next) {
         freightForwarder: s.freightForwarder,
         docHash: s.docHash,
         isDocUploaded: s.isDocUploaded,
-        status: s.status,
+        status: typeof s.status === 'bigint' ? Number(s.status) : s.status,
       },
     });
   } catch (err) {
@@ -304,7 +286,6 @@ async function getShipment(req, res, next) {
 
 /**
  * GET /api/shipments/events
- * Returns unified shipments aggregated from MongoDB records (SHIPMENT_REQUESTED, EXPORT_DOC_UPLOADED, EXPORT_CLEARED, IMPORT_CLEARED)
  */
 async function getShipmentEvents(req, res, next) {
   try {
@@ -327,9 +308,9 @@ async function getShipmentEvents(req, res, next) {
       if (r.recordType === "SHIPMENT_REQUESTED") {
         shipmentsMap.set(data.shipId, {
           id: data.shipId,
-          orderId: data.orderId || "1",
+          orderId: data.orderId || data.batchId || "1",
           batchId: data.batchId,
-          freightForwarder: data.freightForwarder,
+          freightForwarder: data.freightForwarderAddress || data.freightForwarder,
           shipStatus: "Requested",
           shipColor: "blue",
           docStatus: "Pending Upload",
