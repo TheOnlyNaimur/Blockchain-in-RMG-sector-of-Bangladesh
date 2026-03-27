@@ -3,6 +3,7 @@ import AppLayout from "../layouts/AppLayout";
 import StatCard from "../components/ui/StatCard";
 import RoleGuard from "../components/RoleGuard";
 import { useBatchQualityCheck, useBatchEvents } from "../hooks";
+import { generateBatchPDF } from "../utils/pdfGenerator";
 
 export default function QCBatchReview() {
   const [batches, setBatches] = useState([]);
@@ -10,6 +11,7 @@ export default function QCBatchReview() {
   const { data: batchData, refetch } = useBatchEvents();
   const { execute: qualityCheck, loading, error } = useBatchQualityCheck();
   const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
   const [processingBatchId, setProcessingBatchId] = useState(null);
 
   useEffect(() => {
@@ -38,7 +40,11 @@ export default function QCBatchReview() {
   }, [batchData]);
 
   const handleApproveBatch = async () => {
-    if (!selectedBatch) return;
+    if (!selectedBatch || selectedBatch.status !== "Pending") {
+      setErrorMessage("This batch has already been reviewed.");
+      setTimeout(() => setErrorMessage(""), 3000);
+      return;
+    }
 
     setProcessingBatchId(selectedBatch.id);
     setSuccessMessage("");
@@ -55,22 +61,29 @@ export default function QCBatchReview() {
         ),
       );
       setSelectedBatch((prev) => prev ? { ...prev, status: "Approved" } : prev);
-      
+
       // Auto-trigger refetch from the backend to guarantee consistency
       refetch();
-      
+
       setTimeout(() => {
         setSuccessMessage("");
         setProcessingBatchId(null);
       }, 3000);
     } catch (err) {
       console.error("Approval failed:", err);
+      const msg = err?.message || err?.error || "Approval failed. The batch may have already been reviewed.";
+      setErrorMessage(msg);
       setProcessingBatchId(null);
+      setTimeout(() => setErrorMessage(""), 5000);
     }
   };
 
   const handleRejectBatch = async () => {
-    if (!selectedBatch) return;
+    if (!selectedBatch || selectedBatch.status !== "Pending") {
+      setErrorMessage("This batch has already been reviewed.");
+      setTimeout(() => setErrorMessage(""), 3000);
+      return;
+    }
 
     setProcessingBatchId(selectedBatch.id);
     setSuccessMessage("");
@@ -80,7 +93,7 @@ export default function QCBatchReview() {
         status: false,
       });
       setSuccessMessage(`Batch rejected! Transaction: ${result.txHash}`);
-      
+
       // Update local states manually for instant feedback
       setBatches((prev) =>
         prev.map((b) =>
@@ -89,14 +102,17 @@ export default function QCBatchReview() {
       );
       setSelectedBatch((prev) => prev ? { ...prev, status: "Rejected" } : prev);
       refetch();
-      
+
       setTimeout(() => {
         setSuccessMessage("");
         setProcessingBatchId(null);
       }, 3000);
     } catch (err) {
       console.error("Rejection failed:", err);
+      const msg = err?.message || err?.error || "Rejection failed. The batch may have already been reviewed.";
+      setErrorMessage(msg);
       setProcessingBatchId(null);
+      setTimeout(() => setErrorMessage(""), 5000);
     }
   };
 
@@ -132,7 +148,7 @@ export default function QCBatchReview() {
               </span>{" "}
               Review History
             </button>
-            <button 
+            <button
               onClick={refetch}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-background-dark hover:bg-primary/90 transition-all">
               <span className="material-symbols-outlined text-[20px]">
@@ -178,6 +194,20 @@ export default function QCBatchReview() {
                 Error
               </p>
               <p className="text-white text-sm">{error.message}</p>
+            </div>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-3 mb-6">
+            <span className="material-symbols-outlined text-red-500 mt-1">
+              block
+            </span>
+            <div>
+              <p className="text-xs text-red-500 uppercase font-bold tracking-wider mb-1">
+                Action Blocked
+              </p>
+              <p className="text-white text-sm">{errorMessage}</p>
             </div>
           </div>
         )}
@@ -271,39 +301,51 @@ export default function QCBatchReview() {
                           </td>
                           <td className="px-6 py-4">
                             <span
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                                b.status === "Approved"
-                                  ? "bg-green-900/30 text-green-400"
-                                  : b.status === "Rejected"
-                                    ? "bg-red-900/30 text-red-400"
-                                    : isActive
-                                      ? "bg-yellow-900/30 text-yellow-500"
-                                      : "bg-slate-800 text-slate-400"
-                              }`}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${b.status === "Approved"
+                                ? "bg-green-900/30 text-green-400"
+                                : b.status === "Rejected"
+                                  ? "bg-red-900/30 text-red-400"
+                                  : isActive
+                                    ? "bg-yellow-900/30 text-yellow-500"
+                                    : "bg-slate-800 text-slate-400"
+                                }`}
                             >
                               <span
-                                className={`w-1.5 h-1.5 rounded-full ${
-                                  b.status === "Approved"
-                                    ? "bg-green-400"
-                                    : b.status === "Rejected"
-                                      ? "bg-red-400"
-                                      : isActive
-                                        ? "bg-yellow-500"
-                                        : "bg-slate-500"
-                                }`}
+                                className={`w-1.5 h-1.5 rounded-full ${b.status === "Approved"
+                                  ? "bg-green-400"
+                                  : b.status === "Rejected"
+                                    ? "bg-red-400"
+                                    : isActive
+                                      ? "bg-yellow-500"
+                                      : "bg-slate-500"
+                                  }`}
                               ></span>
                               {b.status === "Approved" ? "Approved" : b.status === "Rejected" ? "Rejected" : isActive ? "Reviewing" : "Pending"}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-right">
-                            <button
-                              className={`${isActive ? "text-primary font-bold" : "text-slate-400 group-hover:text-primary"} font-medium text-sm transition-colors flex items-center gap-1 ml-auto`}
-                            >
-                              <span className="material-symbols-outlined text-[16px]">
-                                {isActive ? "visibility" : "preview"}
-                              </span>
-                              {isActive ? "Active" : "Review"}
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  generateBatchPDF(b);
+                                }}
+                                className="text-slate-400 hover:text-white transition-colors"
+                                title="Download Batch Report"
+                              >
+                                <span className="material-symbols-outlined text-[18px]">
+                                  download
+                                </span>
+                              </button>
+                              <button
+                                className={`${isActive ? "text-primary font-bold" : "text-slate-400 group-hover:text-primary"} font-medium text-sm transition-colors flex items-center gap-1 ml-auto`}
+                              >
+                                <span className="material-symbols-outlined text-[16px]">
+                                  {isActive ? "visibility" : "preview"}
+                                </span>
+                                {isActive ? "Active" : "Review"}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -351,13 +393,12 @@ export default function QCBatchReview() {
                           {selectedBatch.seller}
                         </p>
                       </div>
-                      <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${
-                        selectedBatch.status === "Approved"
-                          ? "bg-green-900/20 text-green-400 ring-green-700/10"
-                          : selectedBatch.status === "Rejected"
-                            ? "bg-red-900/20 text-red-400 ring-red-700/10"
-                            : "bg-blue-900/20 text-blue-400 ring-blue-700/10"
-                      }`}>
+                      <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${selectedBatch.status === "Approved"
+                        ? "bg-green-900/20 text-green-400 ring-green-700/10"
+                        : selectedBatch.status === "Rejected"
+                          ? "bg-red-900/20 text-red-400 ring-red-700/10"
+                          : "bg-blue-900/20 text-blue-400 ring-blue-700/10"
+                        }`}>
                         {selectedBatch.status === "Approved" ? "✓ Approved" : selectedBatch.status === "Rejected" ? "✕ Rejected" : "QC Stage 2"}
                       </span>
                     </div>

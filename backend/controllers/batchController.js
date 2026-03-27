@@ -105,6 +105,30 @@ async function qualityCheck(req, res, next) {
       return res.status(400).json({ success: false, error: "privateKey is required or backend not configured" });
     }
 
+    // Pre-check: Prevent duplicate quality reviews
+    try {
+      const readContract = getReadContract();
+      const qualityEvents = await readContract.queryFilter(
+        readContract.filters.BatchQualityUpdated(),
+        0,
+        "latest"
+      );
+      const existingReview = qualityEvents.find(
+        (e) => e.args.batchId.toString() === String(batchId)
+      );
+      if (existingReview) {
+        const previousResult = existingReview.args.status ? "APPROVED" : "REJECTED";
+        return res.status(409).json({
+          success: false,
+          error: `Batch #${batchId} has already been ${previousResult}. Quality reviews cannot be changed once recorded on the blockchain.`,
+          code: "ALREADY_REVIEWED",
+        });
+      }
+    } catch (checkErr) {
+      console.error("Quality check pre-validation failed:", checkErr.message);
+      // Continue — let the smart contract handle it as a fallback
+    }
+
     const contract = getRoleContract(privateKey);
     const result = await safeContractCall({
       contract,

@@ -6,7 +6,7 @@ import StatCard from "../components/ui/StatCard";
 import { useExportVerify, useImportVerify, useShipmentEvents } from "../hooks";
 
 export default function CustomsClearance() {
-  const { data: allShipments = [] } = useShipmentEvents();
+  const { data: allShipments = [], refetch } = useShipmentEvents();
   const [exportQueue, setExportQueue] = useState([]);
   const [importQueue, setImportQueue] = useState([]);
   const [txLog, setTxLog] = useState([]);
@@ -61,6 +61,20 @@ export default function CustomsClearance() {
         data: {},
       });
       setSuccessMessage(`Export cleared! Transaction: ${result.txHash}`);
+      
+      // Update local state instantly
+      setExportQueue(prev => prev.map(s => s.id === shipmentId ? { ...s, shipStatus: "Export Cleared" } : s));
+      setImportQueue(prev => {
+        const item = exportQueue.find(s => s.id === shipmentId);
+        if (item && !prev.find(p => p.id === shipmentId)) {
+           return [...prev, { ...item, shipStatus: "Export Cleared" }];
+        }
+        return prev;
+      });
+      
+      // Auto-refresh the backend data
+      refetch();
+
       setTimeout(() => {
         setSuccessMessage("");
         setProcessingId(null);
@@ -80,6 +94,13 @@ export default function CustomsClearance() {
         data: {},
       });
       setSuccessMessage(`Import cleared! Transaction: ${result.txHash}`);
+      
+      // Update local state instantly
+      setImportQueue(prev => prev.map(s => s.id === shipmentId ? { ...s, shipStatus: "Import Cleared" } : s));
+      
+      // Auto-refresh the backend data
+      refetch();
+
       setTimeout(() => {
         setSuccessMessage("");
         setProcessingId(null);
@@ -232,7 +253,7 @@ export default function CustomsClearance() {
                 </span>
                 Export Queue
               </h2>
-              <span className="text-xs text-text-secondary">3 items</span>
+              <span className="text-xs text-text-secondary">{exportQueue.filter(s => s.shipStatus === "Requested").length} pending, {exportQueue.filter(s => s.shipStatus === "Export Cleared").length} cleared</span>
             </div>
             <div className="rounded-xl border border-border-dark bg-surface-dark overflow-hidden">
               <div className="overflow-x-auto">
@@ -280,25 +301,11 @@ export default function CustomsClearance() {
                           </div>
                         </td>
                         <td className="p-4 text-right">
-                          {item.statusColor === "green" ? (
-                            <button
-                              onClick={() => {
-                                setSelectedExport(item);
-                                setShowPayment(true);
-                              }}
-                              className="bg-primary text-background-dark px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-primary/90 disabled:opacity-50"
-                              disabled={
-                                exportLoading || processingId === item.id
-                              }
-                            >
-                              {processingId === item.id ? (
-                                <span className="material-symbols-outlined text-xs animate-spin inline">
-                                  cached
-                                </span>
-                              ) : (
-                                "Trigger Payment"
-                              )}
-                            </button>
+                          {item.shipStatus === "Export Cleared" ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-400">
+                              <span className="material-symbols-outlined text-[14px]">verified</span>
+                              ✓ Export Cleared
+                            </span>
                           ) : (
                             <button
                               onClick={() =>
@@ -310,16 +317,18 @@ export default function CustomsClearance() {
                               disabled={
                                 exportLoading || processingId === item.id
                               }
-                              className="text-primary hover:underline text-xs font-medium disabled:opacity-50 flex items-center gap-1"
+                              className="bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-400 disabled:opacity-50 flex items-center gap-1"
                             >
                               {processingId === item.id ? (
                                 <span className="material-symbols-outlined text-xs animate-spin">
                                   cached
                                 </span>
-                              ) : null}
+                              ) : (
+                                <span className="material-symbols-outlined text-[14px]">flight_takeoff</span>
+                              )}
                               {processingId === item.id
                                 ? "Processing..."
-                                : "Process"}
+                                : "Clear Export"}
                             </button>
                           )}
                         </td>
@@ -340,7 +349,7 @@ export default function CustomsClearance() {
                 </span>
                 Import Queue
               </h2>
-              <span className="text-xs text-text-secondary">2 items</span>
+              <span className="text-xs text-text-secondary">{importQueue.filter(s => s.shipStatus === "Export Cleared").length} pending, {importQueue.filter(s => s.shipStatus === "Import Cleared").length} cleared</span>
             </div>
             <div className="rounded-xl border border-border-dark bg-surface-dark overflow-hidden">
               <div className="overflow-x-auto">
@@ -376,25 +385,34 @@ export default function CustomsClearance() {
                           Escrow Ready
                         </td>
                         <td className="p-4 text-right">
-                          <button
-                            onClick={() =>
-                              handleImportClearance(
-                                item.id || item.shipId,
-                                `IMP-LICENSE-${item.id || item.shipId}`,
-                              )
-                            }
-                            disabled={importLoading || processingId === item.id}
-                            className="text-primary hover:underline text-xs font-medium disabled:opacity-50 flex items-center gap-1"
-                          >
-                            {processingId === item.id ? (
-                              <span className="material-symbols-outlined text-xs animate-spin">
-                                cached
-                              </span>
-                            ) : null}
-                            {processingId === item.id
-                              ? "Processing..."
-                              : "Review"}
-                          </button>
+                          {item.shipStatus === "Import Cleared" ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-400">
+                              <span className="material-symbols-outlined text-[14px]">verified</span>
+                              ✓ Import Cleared
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() =>
+                                handleImportClearance(
+                                  item.id || item.shipId,
+                                  `IMP-LICENSE-${item.id || item.shipId}`,
+                                )
+                              }
+                              disabled={importLoading || processingId === item.id}
+                              className="bg-purple-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-purple-400 disabled:opacity-50 flex items-center gap-1"
+                            >
+                              {processingId === item.id ? (
+                                <span className="material-symbols-outlined text-xs animate-spin">
+                                  cached
+                                </span>
+                              ) : (
+                                <span className="material-symbols-outlined text-[14px]">flight_land</span>
+                              )}
+                              {processingId === item.id
+                                ? "Processing..."
+                                : "Clear Import"}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}

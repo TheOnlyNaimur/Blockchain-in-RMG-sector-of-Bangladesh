@@ -9,7 +9,6 @@ import BuyerDashboard from "./pages/BuyerDashboard";
 import CertifierPanel from "./pages/CertifierPanel";
 import QCBatchReview from "./pages/QCBatchReview";
 import FreightForwarderDocs from "./pages/FreightForwarderDocs";
-import ShipmentTracking from "./pages/ShipmentTracking";
 import CustomsClearance from "./pages/CustomsClearance";
 import Settings from "./pages/Settings";
 import CompliancePanel from "./pages/CompliancePanel";
@@ -92,46 +91,6 @@ export default function App() {
           element={
             <RoleGuard requiredRoles={["exportCustoms", "importCustoms"]}>
               <CustomsClearance />
-            </RoleGuard>
-          }
-        />
-
-        {/* Shipment Tracking — accessible by all authenticated roles */}
-        <Route
-          path="/tracking/:id"
-          element={
-            <RoleGuard
-              requiredRoles={[
-                "seller",
-                "buyer",
-                "certifier",
-                "qualityChecker",
-                "freightForwarder",
-                "exportCustoms",
-                "importCustoms",
-                "complianceChecker",
-              ]}
-            >
-              <ShipmentTracking />
-            </RoleGuard>
-          }
-        />
-        <Route
-          path="/tracking"
-          element={
-            <RoleGuard
-              requiredRoles={[
-                "seller",
-                "buyer",
-                "certifier",
-                "qualityChecker",
-                "freightForwarder",
-                "exportCustoms",
-                "importCustoms",
-                "complianceChecker",
-              ]}
-            >
-              <ShipmentTracking />
             </RoleGuard>
           }
         />

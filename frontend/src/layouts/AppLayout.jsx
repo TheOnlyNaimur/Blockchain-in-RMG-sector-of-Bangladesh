@@ -41,12 +41,6 @@ const navItems = [
         roles: ['freightForwarder'],
     },
     {
-        path: '/tracking',
-        label: 'Shipment Tracking',
-        icon: 'timeline',
-        roles: ['seller', 'buyer', 'certifier', 'qualityChecker', 'freightForwarder', 'exportCustoms', 'importCustoms', 'complianceChecker'],
-    },
-    {
         path: '/traceability',
         label: 'Traceability Audit',
         icon: 'verified',

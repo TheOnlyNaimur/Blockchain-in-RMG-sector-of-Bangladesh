@@ -117,7 +117,7 @@ async function main() {
   // └─────────────────────────────────────────┘
   console.log("\n── Phase 5: Seller Creates Order ──");
   const orderPayload = await signPayload(SELLER_PK, {
-    details: "10,000 RMG T-Shirts", buyerAddress: BUYER_ADDR, hsCode: "6109.10", destination: "New York",
+    details: "10,000 RMG T-Shirts", buyerAddress: BUYER_ADDR, amount: "1000", hsCode: "6109.10", destination: "New York",
   });
   const orderRes = log("Create Order", await post(`${API}/orders`, orderPayload));
   if (!orderRes.success) return;

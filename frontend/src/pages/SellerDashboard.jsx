@@ -10,6 +10,7 @@ import { useBatchCreation } from "../hooks/useBatches";
 import { useShipmentRequest } from "../hooks/useShipments";
 import { useOrdersFetching, useOrderCreation } from "../hooks";
 import { ROLES } from "../config/contracts";
+import { generateOrderPDF } from "../utils/pdfGenerator";
 
 export default function SellerDashboard() {
   const { userProfile } = useUser();
@@ -18,10 +19,14 @@ export default function SellerDashboard() {
     execute: createBatch,
     loading: creatingBatch,
   } = useBatchCreation();
-  const { execute: createOrder } = useOrderCreation();
+  const { execute: createOrder, loading: creatingOrder } = useOrderCreation();
   const { execute: requestShipment, loading: requestingShipment } = useShipmentRequest();
   const { data: allOrdersRaw, refetch: refetchOrders } = useOrdersFetching();
   const allOrders = allOrdersRaw ?? [];
+  
+  // Compliance status
+  const [isCompliant, setIsCompliant] = useState(null); // null=loading, true/false=result
+  const [complianceDetails, setComplianceDetails] = useState(null);
   
   const [orders, setOrders] = useState([]);
   const [showCreateBatch, setShowCreateBatch] = useState(false);
@@ -42,6 +47,24 @@ export default function SellerDashboard() {
 
   const { address: walletAddress } = useAccount();
 
+  // Fetch compliance status on mount
+  useEffect(() => {
+    const addr = userProfile?.address || walletAddress;
+    if (addr) {
+      fetch(`http://localhost:3000/api/compliance/${addr}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            setIsCompliant(data.isFullyCompliant);
+            setComplianceDetails(data.compliance);
+          } else {
+            setIsCompliant(false);
+          }
+        })
+        .catch(() => setIsCompliant(false));
+    }
+  }, [userProfile, walletAddress]);
+
   useEffect(() => {
     const addr = userProfile?.address || walletAddress;
     if (addr && allOrders.length > 0) {
@@ -53,6 +76,14 @@ export default function SellerDashboard() {
 
   const handleSubmitOrder = async () => {
     if (!buyerAddress || !details || !amount) return;
+    if (isCompliant === false) {
+      setToast({
+        message: "You must hold all 4 compliance certificates (Fire Safety, Building Safety, Labor Standards, Environmental) before creating orders. Visit the Compliance Panel to get certified.",
+        type: "error",
+        icon: "block",
+      });
+      return;
+    }
     try {
       const result = await createOrder({ buyerAddress, details, amount, hsCode, destination });
       setToast({ message: `Order proposed! Tx: ${result.txHash.slice(0, 10)}... ID: ${result.orderId}`, type: "success", icon: "check_circle" });
@@ -63,7 +94,9 @@ export default function SellerDashboard() {
       setHsCode("");
       setDestination("");
     } catch (err) {
-      setToast({ message: err.message || "Failed to create order", type: "error", icon: "error" });
+      // Show backend compliance error or generic message
+      const errMsg = err?.message || err?.error || "Failed to create order";
+      setToast({ message: errMsg, type: "error", icon: "error" });
     }
   };
 
@@ -95,8 +128,10 @@ export default function SellerDashboard() {
         ),
       );
       setShowCreateBatch(false);
+      refetchOrders();
       setToast({
         message: `Batch created! Tx: ${result.txHash?.slice(0, 10)}... Batch ID: ${result.batchId}`,
+        duration: 5000,
         type: "success",
         icon: "check_circle",
       });
@@ -125,6 +160,7 @@ export default function SellerDashboard() {
         )
       );
       setShowRequestShipment(false);
+      refetchOrders();
       setToast({ message: `Shipment requested! Tx: ${result.txHash?.slice(0, 10)}... Ship ID: ${result.shipId}`, type: "success", icon: "check_circle" });
     } catch (err) {
       setToast({ message: `Failed to request shipment: ${err.message || "Unknown error"}`, type: "error", icon: "error" });
@@ -224,6 +260,26 @@ export default function SellerDashboard() {
           </div>
         </section>
 
+        {/* Compliance Warning */}
+        {isCompliant === false && (
+          <div className="mb-8 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-4">
+            <span className="material-symbols-outlined text-red-500 text-2xl">
+              gpp_bad
+            </span>
+            <div>
+              <h3 className="text-red-500 font-bold mb-1">Compliance Certificates Required</h3>
+              <p className="text-text-secondary text-sm mb-3">
+                You currently do not hold all 4 required compliance certificates (Fire Safety, Building Safety, Labor Standards, Environmental). 
+                <strong className="text-white"> You cannot create new orders until you are fully compliant.</strong>
+              </p>
+              <a href="/dashboard/certifier" className="inline-flex items-center gap-1.5 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-400 px-3 py-1.5 rounded transition-colors font-bold border border-red-500/20">
+                <span className="material-symbols-outlined text-[14px]">local_police</span>
+                View Compliance Status
+              </a>
+            </div>
+          </div>
+        )}
+
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Orders Table */}
@@ -282,7 +338,17 @@ export default function SellerDashboard() {
                           {order.amount}
                         </td>
                         <td className="px-6 py-4 text-center">
-                          {order.action === "Create Batch" ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => generateOrderPDF(order)}
+                              className="text-text-secondary hover:text-white transition-colors"
+                              title="Download Order Report"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">
+                                download
+                              </span>
+                            </button>
+                            {order.action === "Create Batch" ? (
                             <button
                               onClick={() => {
                                 setBatchOrder(order);
@@ -310,24 +376,39 @@ export default function SellerDashboard() {
                               </span>
                             </button>
                           ) : (
-                            <span className="text-xs text-text-secondary italic">
+                            <span className={`text-xs italic flex items-center gap-1 ${order.status === "QC Failed" ? "text-red-400" : order.status === "Delivered & Paid" ? "text-green-400" : "text-text-secondary"}`}>
+                              <span className="material-symbols-outlined text-[14px]">
+                                {order.status === "Created" ? "hourglass_top"
+                                  : order.status === "Batch Created" ? "science"
+                                  : order.status === "QC Failed" ? "cancel"
+                                  : order.status === "Shipment Requested" ? "local_shipping"
+                                  : order.status === "Export Cleared" ? "flight_takeoff"
+                                  : order.status === "Import Cleared" ? "flight_land"
+                                  : order.status === "Delivered & Paid" ? "verified"
+                                  : "schedule"}
+                              </span>
                               {order.status === "Created"
-                                ? "Waiting for Buyer"
-                                : order.status === "Batch Created"
-                                  ? "Awaiting QC"
-                                  : order.status === "QC Failed"
-                                    ? "QC Rejected"
-                                    : order.status === "Shipment Requested"
-                                      ? "In Transit"
-                                      : order.status === "Export Cleared"
-                                        ? "Awaiting Import Tracker"
-                                        : order.status === "Import Cleared"
-                                          ? "Awaiting Delivery Conf."
-                                          : order.status === "Delivered & Paid"
-                                            ? "Completed & Paid"
-                                            : "Processing"}
+                                ? "Waiting for Buyer Acceptance"
+                                : order.status === "Accepted"
+                                  ? "Buyer Accepted — Create Batch"
+                                  : order.status === "Batch Created"
+                                    ? "Awaiting QC Review"
+                                    : order.status === "QC Failed"
+                                      ? "QC Rejected — Review Required"
+                                      : order.status === "QC Approved"
+                                        ? "QC Passed — Request Shipment"
+                                        : order.status === "Shipment Requested"
+                                          ? "In Transit — Awaiting Export"
+                                          : order.status === "Export Cleared"
+                                            ? "Export Done — Awaiting Import"
+                                            : order.status === "Import Cleared"
+                                              ? "Arrived — Awaiting Buyer Confirmation"
+                                              : order.status === "Delivered & Paid"
+                                                ? "✓ Completed & Paid"
+                                                : "Awaiting Next Step"}
                             </span>
                           )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -446,15 +527,42 @@ export default function SellerDashboard() {
                   </div>
                 </div>
                 <div className="h-px bg-border-dark my-2"></div>
+                {isCompliant === false && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-red-500/10 border border-red-500/30 mb-3">
+                    <span className="material-symbols-outlined text-red-400 text-[20px] mt-0.5">
+                      warning
+                    </span>
+                    <div>
+                      <p className="text-xs text-red-400 font-bold mb-1">Compliance Required</p>
+                      <p className="text-xs text-red-400/80 leading-relaxed">
+                        You must hold all 4 compliance certificates before creating orders.
+                        {complianceDetails && (
+                          <span className="block mt-1">
+                            Missing: {complianceDetails.filter(c => !c.isValid).map(c => c.type.replace(/([A-Z])/g, ' $1').trim()).join(', ')}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <button
-                  className="flex w-full items-center justify-center rounded-lg h-11 px-4 bg-primary hover:bg-primary-hover text-background-dark text-sm font-bold transition-colors shadow-lg shadow-primary/20 disabled:opacity-50"
+                  className={`flex w-full items-center justify-center rounded-lg h-11 px-4 text-sm font-bold transition-colors shadow-lg disabled:opacity-50 ${
+                    isCompliant === false
+                      ? "bg-red-500/20 text-red-400 border border-red-500/30 cursor-not-allowed"
+                      : "bg-primary hover:bg-primary-hover text-background-dark shadow-primary/20"
+                  }`}
                   type="button"
                   onClick={handleSubmitOrder}
-                  disabled={creatingOrder || !buyerAddress || !details || !amount}
+                  disabled={creatingOrder || !buyerAddress || !details || !amount || isCompliant === false}
                 >
                   {creatingOrder ? (
                     <span className="material-symbols-outlined animate-spin text-lg">
                       cached
+                    </span>
+                  ) : isCompliant === false ? (
+                    <span className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[18px]">block</span>
+                      Compliance Certificates Required
                     </span>
                   ) : (
                     "Submit Order Proposal"
@@ -725,7 +833,10 @@ export default function SellerDashboard() {
                   </span>{" "}
                   View on Etherscan
                 </button>
-                <button className="flex-1 px-4 py-2.5 bg-primary/10 text-primary border border-primary/20 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-2">
+                <button 
+                  onClick={() => generateOrderPDF(trackingOrder)}
+                  className="flex-1 px-4 py-2.5 bg-primary/10 text-primary border border-primary/20 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-2"
+                >
                   <span className="material-symbols-outlined text-[18px]">
                     download
                   </span>{" "}

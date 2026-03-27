@@ -10,6 +10,7 @@ import { useAccount } from "wagmi";
 import { useOrderAcceptance, useOrderPayment, useOrdersFetching } from "../hooks";
 import { ethers } from "ethers";
 import { CONTRACT_CONFIG } from "../config/contracts";
+import { generateOrderPDF } from "../utils/pdfGenerator";
 
 export default function BuyerDashboard() {
   const { userProfile } = useUser();
@@ -359,6 +360,15 @@ export default function BuyerDashboard() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => generateOrderPDF(order)}
+                          className="bg-surface-darker hover:bg-border-dark text-text-secondary hover:text-white p-1.5 rounded-lg transition-colors border border-border-dark"
+                          title="Download Order Report"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">
+                            download
+                          </span>
+                        </button>
                         {order.status === "Created" ? (
                           <button
                             onClick={() => handleAccept(order)}
@@ -385,23 +395,29 @@ export default function BuyerDashboard() {
                             Completed
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-text-secondary text-xs italic">
+                          <span className={`inline-flex items-center gap-1 text-xs italic ${order.status === "QC Failed" ? "text-red-400" : "text-text-secondary"}`}>
                             <span className="material-symbols-outlined text-[14px]">
-                              hourglass_top
+                              {order.status === "Accepted" ? "inventory_2"
+                                : order.status === "Batch Created" ? "science"
+                                : order.status === "QC Approved" ? "local_shipping"
+                                : order.status === "QC Failed" ? "cancel"
+                                : order.status === "Shipment Requested" ? "flight_takeoff"
+                                : order.status === "Export Cleared" ? "flight_land"
+                                : "hourglass_top"}
                             </span>
                             {order.status === "Accepted"
-                              ? "Awaiting Batch"
+                              ? "Seller Creating Batch"
                               : order.status === "Batch Created"
-                                ? "Awaiting QC"
+                                ? "Awaiting QC Inspection"
                                 : order.status === "QC Approved"
-                                  ? "Awaiting Shipment"
-                                  : order.status === "Shipment Requested"
-                                    ? "In Transit"
-                                    : order.status === "Export Cleared"
-                                      ? "Awaiting Import"
-                                      : order.status === "QC Failed"
-                                        ? "QC Failed"
-                                        : "Processing..."}
+                                  ? "Awaiting Shipment Request"
+                                  : order.status === "QC Failed"
+                                    ? "QC Failed — Seller Must Resolve"
+                                    : order.status === "Shipment Requested"
+                                      ? "In Transit — Export Pending"
+                                      : order.status === "Export Cleared"
+                                        ? "Exported — Awaiting Import Clearance"
+                                        : "Awaiting Next Step"}
                           </span>
                         )}
                       </div>

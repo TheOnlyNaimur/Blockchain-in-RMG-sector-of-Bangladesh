@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import AppLayout from "../layouts/AppLayout";
 import RoleGuard from "../components/RoleGuard";
+import { generateTraceabilityPDF } from "../utils/pdfGenerator";
 
 export default function TraceabilityDashboard() {
   const [searchId, setSearchId] = useState("");
@@ -147,7 +148,14 @@ export default function TraceabilityDashboard() {
                   Query Output for: <span className="text-white font-bold">{searchId}</span>
                 </p>
               </div>
-              <div className="text-right">
+              <div className="text-right flex items-center gap-3">
+                <button
+                  onClick={() => generateTraceabilityPDF(events, searchId)}
+                  className="bg-surface-darker hover:bg-border-dark text-text-secondary hover:text-white p-2 text-sm rounded-lg transition-colors border border-border-dark flex items-center gap-2"
+                >
+                  <span className="material-symbols-outlined text-[18px]">download</span>
+                  Download PDF
+                </button>
                 <span className="inline-flex items-center bg-green-500/10 text-green-400 border border-green-500/20 px-3 py-1 rounded-lg text-xs font-bold font-mono">
                   <span className="w-2 h-2 rounded-full bg-green-400 mr-2 animate-pulse"></span>
                   CHAIN VALIDATED
@@ -179,19 +187,19 @@ export default function TraceabilityDashboard() {
                         </span>
 
                         <h3 className="text-lg font-bold text-white mb-2">{event.title}</h3>
-                        <p className="text-sm text-text-secondary mb-4 leading-relaxed">{event.desc}</p>
+                        <p className="text-sm text-text-secondary mb-4 leading-relaxed break-all">{event.desc}</p>
 
-                        <div className={`flex flex-col gap-2 ${index % 2 === 0 ? "md:items-end" : "items-start"}`}>
+                        <div className={`flex flex-col gap-2 ${index % 2 === 0 ? "md:items-end md:text-right" : "items-start text-left"}`}>
                           <div className="flex items-center gap-1.5 text-xs">
                             <span className="material-symbols-outlined text-[14px] text-primary">tag</span>
                             <span className="text-slate-400">Block:</span>
                             <span className="text-white font-mono">{event.block}</span>
                           </div>
 
-                          <div className="flex items-center gap-1.5 text-xs bg-surface-darker px-2 py-1 rounded border border-border-dark">
-                            <span className="material-symbols-outlined text-[14px] text-blue-400">receipt_long</span>
-                            <span className="text-slate-400">Tx:</span>
-                            <span className="text-blue-400 hover:underline cursor-pointer font-mono">{event.txHash}</span>
+                          <div className="flex items-center gap-1.5 text-xs bg-surface-darker px-2 py-1 rounded border border-border-dark max-w-full overflow-hidden">
+                            <span className="material-symbols-outlined text-[14px] text-blue-400 shrink-0">receipt_long</span>
+                            <span className="text-slate-400 shrink-0">Tx:</span>
+                            <span className="text-blue-400 hover:underline cursor-pointer font-mono truncate">{event.txHash}</span>
                           </div>
 
                           {event.ipfs && (
@@ -213,7 +221,10 @@ export default function TraceabilityDashboard() {
               <p className="text-sm text-text-secondary mb-4">
                 This ledger ensures full transparency and accountability across the Bangladesh RMG export lifecycle.
               </p>
-              <button className="bg-border-dark hover:bg-border-dark/80 text-white font-bold py-2 px-6 rounded-lg transition-colors border border-border-dark/50 flex items-center gap-2 mx-auto text-sm">
+              <button 
+                onClick={() => generateTraceabilityPDF(events, searchId)}
+                className="bg-border-dark hover:bg-border-dark/80 text-white font-bold py-2 px-6 rounded-lg transition-colors border border-border-dark/50 flex items-center gap-2 mx-auto text-sm"
+              >
                 <span className="material-symbols-outlined text-[18px]">download</span>
                 Download Audit Report (PDF)
               </button>

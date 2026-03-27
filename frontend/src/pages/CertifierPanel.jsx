@@ -3,6 +3,7 @@ import AppLayout from "../layouts/AppLayout";
 import StatCard from "../components/ui/StatCard";
 import RoleGuard from "../components/RoleGuard";
 import { useSellerApproval, useSellerEvents } from "../hooks";
+import { generateCertificatePDF } from "../utils/pdfGenerator";
 
 export default function CertifierPanel() {
   const [activeTab, setActiveTab] = useState("pending");
@@ -338,6 +339,15 @@ export default function CertifierPanel() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => generateCertificatePDF(row)}
+                              className="text-text-secondary hover:text-white text-sm font-medium px-2 py-1 rounded hover:bg-surface-darker transition-colors"
+                              title="Download Certificate"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">
+                                download
+                              </span>
+                            </button>
                             <button className="text-text-secondary hover:text-white text-sm font-medium px-2 py-1 rounded hover:bg-surface-darker transition-colors">
                               <span className="material-symbols-outlined text-[18px]">
                                 visibility
@@ -580,7 +590,10 @@ export default function CertifierPanel() {
                     </span>{" "}
                     View on Etherscan
                   </button>
-                  <button className="px-4 py-2 bg-primary/10 text-primary border border-primary/20 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors flex items-center gap-2">
+                  <button 
+                    onClick={() => generateCertificatePDF({ seller: "Pacific Rim Trading", certDocHash: "0x7f83...d906", id: "CERT-XYZ" })}
+                    className="px-4 py-2 bg-primary/10 text-primary border border-primary/20 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors flex items-center gap-2"
+                  >
                     <span className="material-symbols-outlined text-[16px]">
                       download
                     </span>{" "}

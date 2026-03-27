@@ -32,6 +32,26 @@ async function createOrder(req, res, next) {
       return res.status(401).json({ success: false, error: "Signature does not match user address" });
     }
 
+    // Pre-check: Ensure seller has all 4 compliance certificates before creating order
+    try {
+      const readContract = getReadContract();
+      const isCompliant = await readContract.isSellerCompliant(userAddress);
+      if (!isCompliant) {
+        return res.status(403).json({
+          success: false,
+          error: "You must hold all 4 compliance certificates (Fire Safety, Building Safety, Labor Standards, Environmental) before creating orders. Please contact the Compliance Checker to get your certificates issued.",
+          code: "COMPLIANCE_REQUIRED",
+        });
+      }
+    } catch (complianceErr) {
+      console.error("Compliance check failed:", complianceErr.message);
+      return res.status(403).json({
+        success: false,
+        error: "Unable to verify compliance status. Ensure you are registered and have all compliance certificates before creating orders.",
+        code: "COMPLIANCE_CHECK_FAILED",
+      });
+    }
+
     const detailsHash = ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify({ details, buyerAddress })));
     const hsCodeHash = hsCode ? ethers.keccak256(ethers.toUtf8Bytes(hsCode)) : ethers.ZeroHash;
     const destinationHash = destination ? ethers.keccak256(ethers.toUtf8Bytes(destination)) : ethers.ZeroHash;
