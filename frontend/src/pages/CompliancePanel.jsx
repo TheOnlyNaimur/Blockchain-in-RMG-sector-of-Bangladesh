@@ -42,10 +42,11 @@ export default function CompliancePanel() {
   const [fetchingStatus, setFetchingStatus] = useState(false);
   const [certFile, setCertFile] = useState(null);
   const [certFileName, setCertFileName] = useState("");
+  const isSellerApproved = sellerStatus?.isRegistered === true;
 
   // Fetch current compliance status for the given seller via REST
   const checkSellerStatus = async () => {
-    if (!sellerAddress || sellerAddress.length !== 42) return;
+    if (!sellerAddress || !ethers.isAddress(sellerAddress)) return;
 
     setFetchingStatus(true);
     try {
@@ -70,7 +71,7 @@ export default function CompliancePanel() {
       )?.isValid;
 
       setSellerStatus({
-        isRegistered: true, // Assuming registered if they have compliance data
+        isRegistered: Boolean(data.isApprovedOnChain),
         name: "Queried Factory",
         hasFire: fire,
         hasBuilding: building,
@@ -86,7 +87,7 @@ export default function CompliancePanel() {
   };
 
   useEffect(() => {
-    if (sellerAddress.length === 42) {
+    if (ethers.isAddress(sellerAddress)) {
       checkSellerStatus();
     } else {
       setSellerStatus(null);
@@ -95,8 +96,17 @@ export default function CompliancePanel() {
 
   const handleIssueCert = async (e) => {
     e.preventDefault();
-    if (!sellerAddress) return toast.error("Please enter a seller address");
+    if (!sellerAddress || !ethers.isAddress(sellerAddress)) {
+      return toast.error(
+        "Please enter a valid seller wallet address, not an ID or private key.",
+      );
+    }
     if (!certFile) return toast.error("Please upload a certificate file");
+    if (!sellerStatus?.isRegistered) {
+      return toast.error(
+        "Seller must be registered and approved before issuing compliance certificates.",
+      );
+    }
 
     setLoading(true);
     try {
@@ -212,6 +222,16 @@ export default function CompliancePanel() {
                 />
               </div>
 
+              {!fetchingStatus &&
+                sellerAddress &&
+                ethers.isAddress(sellerAddress) &&
+                !isSellerApproved && (
+                  <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200">
+                    This seller must be approved on-chain before a compliance
+                    certificate file can be uploaded or submitted.
+                  </div>
+                )}
+
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-3">
                   Certificate Type
@@ -252,13 +272,15 @@ export default function CompliancePanel() {
                   <input
                     type="file"
                     accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                    disabled={!isSellerApproved}
                     onChange={(e) => {
+                      if (!isSellerApproved) return;
                       if (e.target.files?.[0]) {
                         setCertFile(e.target.files[0]);
                         setCertFileName(e.target.files[0].name);
                       }
                     }}
-                    className="w-full opacity-0 cursor-pointer h-12"
+                    className="w-full opacity-0 cursor-pointer h-12 disabled:cursor-not-allowed"
                   />
                   <div className="absolute inset-0 bg-[#1A221C] border border-dashed border-border-dark rounded-lg px-4 py-3 flex items-center justify-between pointer-events-none">
                     <div className="flex items-center gap-2">
@@ -266,7 +288,9 @@ export default function CompliancePanel() {
                         cloud_upload
                       </span>
                       <span className="text-sm text-text-secondary">
-                        {certFileName || "Click to upload or drag and drop"}
+                        {isSellerApproved
+                          ? certFileName || "Click to upload or drag and drop"
+                          : "Seller must be approved before upload"}
                       </span>
                     </div>
                     {certFile && (
@@ -283,7 +307,9 @@ export default function CompliancePanel() {
 
               <button
                 type="submit"
-                disabled={loading || !sellerAddress}
+                disabled={
+                  loading || !sellerAddress || !certFile || !isSellerApproved
+                }
                 className="w-full bg-primary hover:bg-primary-hover text-[#111813] font-bold py-3.5 px-4 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {loading ? (
@@ -332,7 +358,7 @@ export default function CompliancePanel() {
                   <div
                     className={`px-3 py-1 rounded-full text-xs font-bold ${sellerStatus.isRegistered ? "bg-green-500/20 text-green-500" : "bg-red-500/20 text-red-500"}`}
                   >
-                    {sellerStatus.isRegistered ? "Registered" : "Unregistered"}
+                    {sellerStatus.isRegistered ? "Approved" : "Not Approved"}
                   </div>
                 </div>
 

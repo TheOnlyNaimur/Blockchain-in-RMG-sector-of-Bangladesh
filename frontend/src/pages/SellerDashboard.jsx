@@ -15,19 +15,18 @@ import { generateOrderPDF } from "../utils/pdfGenerator";
 export default function SellerDashboard() {
   const { userProfile } = useUser();
   const { isConnected } = useWallet();
-  const {
-    execute: createBatch,
-    loading: creatingBatch,
-  } = useBatchCreation();
+  const { execute: createBatch, loading: creatingBatch } = useBatchCreation();
   const { execute: createOrder, loading: creatingOrder } = useOrderCreation();
-  const { execute: requestShipment, loading: requestingShipment } = useShipmentRequest();
+  const { execute: requestShipment, loading: requestingShipment } =
+    useShipmentRequest();
   const { data: allOrdersRaw, refetch: refetchOrders } = useOrdersFetching();
   const allOrders = allOrdersRaw ?? [];
-  
+
   // Compliance status
   const [isCompliant, setIsCompliant] = useState(null); // null=loading, true/false=result
+  const [isApprovedOnChain, setIsApprovedOnChain] = useState(null);
   const [complianceDetails, setComplianceDetails] = useState(null);
-  
+
   const [orders, setOrders] = useState([]);
   const [showCreateBatch, setShowCreateBatch] = useState(false);
   const [showRequestShipment, setShowRequestShipment] = useState(false);
@@ -36,7 +35,9 @@ export default function SellerDashboard() {
   const [batchOrder, setBatchOrder] = useState(null);
   const [shipmentOrder, setShipmentOrder] = useState(null);
   const [toast, setToast] = useState(null);
-  const [freightForwarderAddress, setFreightForwarderAddress] = useState(ROLES.freightForwarder || "");
+  const [freightForwarderAddress, setFreightForwarderAddress] = useState(
+    ROLES.freightForwarder || "",
+  );
 
   // Form state
   const [buyerAddress, setBuyerAddress] = useState("");
@@ -52,23 +53,30 @@ export default function SellerDashboard() {
     const addr = userProfile?.address || walletAddress;
     if (addr) {
       fetch(`http://localhost:3000/api/compliance/${addr}`)
-        .then(res => res.json())
-        .then(data => {
+        .then((res) => res.json())
+        .then((data) => {
           if (data.success) {
             setIsCompliant(data.isFullyCompliant);
+            setIsApprovedOnChain(Boolean(data.isApprovedOnChain));
             setComplianceDetails(data.compliance);
           } else {
             setIsCompliant(false);
+            setIsApprovedOnChain(false);
           }
         })
-        .catch(() => setIsCompliant(false));
+        .catch(() => {
+          setIsCompliant(false);
+          setIsApprovedOnChain(false);
+        });
     }
   }, [userProfile, walletAddress]);
 
   useEffect(() => {
     const addr = userProfile?.address || walletAddress;
     if (addr && allOrders.length > 0) {
-      setOrders(allOrders.filter(o => o.seller.toLowerCase() === addr.toLowerCase()));
+      setOrders(
+        allOrders.filter((o) => o.seller.toLowerCase() === addr.toLowerCase()),
+      );
     } else if (allOrders.length > 0) {
       setOrders(allOrders);
     }
@@ -78,15 +86,26 @@ export default function SellerDashboard() {
     if (!buyerAddress || !details || !amount) return;
     if (isCompliant === false) {
       setToast({
-        message: "You must hold all 4 compliance certificates (Fire Safety, Building Safety, Labor Standards, Environmental) before creating orders. Visit the Compliance Panel to get certified.",
+        message:
+          "You must hold all 4 compliance certificates (Fire Safety, Building Safety, Labor Standards, Environmental) before creating orders. Visit the Compliance Panel to get certified.",
         type: "error",
         icon: "block",
       });
       return;
     }
     try {
-      const result = await createOrder({ buyerAddress, details, amount, hsCode, destination });
-      setToast({ message: `Order proposed! Tx: ${result.txHash.slice(0, 10)}... ID: ${result.orderId}`, type: "success", icon: "check_circle" });
+      const result = await createOrder({
+        buyerAddress,
+        details,
+        amount,
+        hsCode,
+        destination,
+      });
+      setToast({
+        message: `Order proposed! Tx: ${result.txHash.slice(0, 10)}... ID: ${result.orderId}`,
+        type: "success",
+        icon: "check_circle",
+      });
       refetchOrders();
       setBuyerAddress("");
       setDetails("");
@@ -155,15 +174,28 @@ export default function SellerDashboard() {
       setOrders((prev) =>
         prev.map((o) =>
           o.id === shipmentOrder.id
-            ? { ...o, status: "Shipment Requested", statusColor: "blue", action: null }
-            : o
-        )
+            ? {
+                ...o,
+                status: "Shipment Requested",
+                statusColor: "blue",
+                action: null,
+              }
+            : o,
+        ),
       );
       setShowRequestShipment(false);
       refetchOrders();
-      setToast({ message: `Shipment requested! Tx: ${result.txHash?.slice(0, 10)}... Ship ID: ${result.shipId}`, type: "success", icon: "check_circle" });
+      setToast({
+        message: `Shipment requested! Tx: ${result.txHash?.slice(0, 10)}... Ship ID: ${result.shipId}`,
+        type: "success",
+        icon: "check_circle",
+      });
     } catch (err) {
-      setToast({ message: `Failed to request shipment: ${err.message || "Unknown error"}`, type: "error", icon: "error" });
+      setToast({
+        message: `Failed to request shipment: ${err.message || "Unknown error"}`,
+        type: "error",
+        icon: "error",
+      });
     }
   };
 
@@ -217,8 +249,20 @@ export default function SellerDashboard() {
                   <h1 className="text-white text-2xl md:text-[28px] font-bold leading-tight tracking-[-0.015em]">
                     {userProfile?.displayName || "Blockchain Seller"}
                   </h1>
-                  <span className="bg-primary/20 text-primary text-xs font-bold px-2 py-1 rounded uppercase tracking-wider border border-primary/30">
-                    Approved
+                  <span
+                    className={`text-xs font-bold px-2 py-1 rounded uppercase tracking-wider border ${
+                      isApprovedOnChain === true
+                        ? "bg-primary/20 text-primary border-primary/30"
+                        : isApprovedOnChain === false
+                          ? "bg-red-500/20 text-red-400 border-red-500/30"
+                          : "bg-yellow-500/20 text-yellow-300 border-yellow-500/30"
+                    }`}
+                  >
+                    {isApprovedOnChain === true
+                      ? "Approved"
+                      : isApprovedOnChain === false
+                        ? "Not Approved"
+                        : "Checking..."}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-text-secondary text-sm">
@@ -226,13 +270,19 @@ export default function SellerDashboard() {
                     <span className="material-symbols-outlined text-[18px]">
                       account_balance_wallet
                     </span>
-                    <span className="font-mono">{userProfile?.address ? `${userProfile.address.slice(0, 10)}...${userProfile.address.slice(-4)}` : "Unknown Wallet"}</span>
+                    <span className="font-mono">
+                      {userProfile?.address
+                        ? `${userProfile.address.slice(0, 10)}...${userProfile.address.slice(-4)}`
+                        : "Unknown Wallet"}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-[18px]">
                       verified_user
                     </span>
-                    <span className="font-mono">Role: {userProfile?.role || "Pending"}</span>
+                    <span className="font-mono">
+                      Role: {userProfile?.role || "Pending"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -267,13 +317,24 @@ export default function SellerDashboard() {
               gpp_bad
             </span>
             <div>
-              <h3 className="text-red-500 font-bold mb-1">Compliance Certificates Required</h3>
+              <h3 className="text-red-500 font-bold mb-1">
+                Compliance Certificates Required
+              </h3>
               <p className="text-text-secondary text-sm mb-3">
-                You currently do not hold all 4 required compliance certificates (Fire Safety, Building Safety, Labor Standards, Environmental). 
-                <strong className="text-white"> You cannot create new orders until you are fully compliant.</strong>
+                You currently do not hold all 4 required compliance certificates
+                (Fire Safety, Building Safety, Labor Standards, Environmental).
+                <strong className="text-white">
+                  {" "}
+                  You cannot create new orders until you are fully compliant.
+                </strong>
               </p>
-              <a href="/dashboard/certifier" className="inline-flex items-center gap-1.5 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-400 px-3 py-1.5 rounded transition-colors font-bold border border-red-500/20">
-                <span className="material-symbols-outlined text-[14px]">local_police</span>
+              <a
+                href="/dashboard/certifier"
+                className="inline-flex items-center gap-1.5 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-400 px-3 py-1.5 rounded transition-colors font-bold border border-red-500/20"
+              >
+                <span className="material-symbols-outlined text-[14px]">
+                  local_police
+                </span>
                 View Compliance Status
               </a>
             </div>
@@ -349,65 +410,78 @@ export default function SellerDashboard() {
                               </span>
                             </button>
                             {order.action === "Create Batch" ? (
-                            <button
-                              onClick={() => {
-                                setBatchOrder(order);
-                                setShowCreateBatch(true);
-                              }}
-                              disabled={creatingBatch}
-                              className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 bg-primary text-background-dark text-xs font-bold hover:bg-primary-hover disabled:opacity-50 transition-colors shadow-sm shadow-primary/20"
-                            >
-                              {creatingBatch ? "Creating..." : "Create Batch"}
-                            </button>
-                          ) : order.action === "Request Shipment" ? (
-                            <button
-                              onClick={() => {
-                                setShipmentOrder(order);
-                                setShowRequestShipment(true);
-                              }}
-                              className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 bg-green-500 text-background-dark text-xs font-bold hover:bg-green-400 transition-colors shadow-sm"
-                            >
-                              Request Shipment
-                            </button>
-                          ) : order.action === "delete" ? (
-                            <button className="text-text-secondary hover:text-white transition-colors">
-                              <span className="material-symbols-outlined text-[18px]">
-                                delete
-                              </span>
-                            </button>
-                          ) : (
-                            <span className={`text-xs italic flex items-center gap-1 ${order.status === "QC Failed" ? "text-red-400" : order.status === "Delivered & Paid" ? "text-green-400" : "text-text-secondary"}`}>
-                              <span className="material-symbols-outlined text-[14px]">
-                                {order.status === "Created" ? "hourglass_top"
-                                  : order.status === "Batch Created" ? "science"
-                                  : order.status === "QC Failed" ? "cancel"
-                                  : order.status === "Shipment Requested" ? "local_shipping"
-                                  : order.status === "Export Cleared" ? "flight_takeoff"
-                                  : order.status === "Import Cleared" ? "flight_land"
-                                  : order.status === "Delivered & Paid" ? "verified"
-                                  : "schedule"}
-                              </span>
-                              {order.status === "Created"
-                                ? "Waiting for Buyer Acceptance"
-                                : order.status === "Accepted"
-                                  ? "Buyer Accepted — Create Batch"
-                                  : order.status === "Batch Created"
-                                    ? "Awaiting QC Review"
-                                    : order.status === "QC Failed"
-                                      ? "QC Rejected — Review Required"
-                                      : order.status === "QC Approved"
-                                        ? "QC Passed — Request Shipment"
+                              <button
+                                onClick={() => {
+                                  setBatchOrder(order);
+                                  setShowCreateBatch(true);
+                                }}
+                                disabled={creatingBatch}
+                                className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 bg-primary text-background-dark text-xs font-bold hover:bg-primary-hover disabled:opacity-50 transition-colors shadow-sm shadow-primary/20"
+                              >
+                                {creatingBatch ? "Creating..." : "Create Batch"}
+                              </button>
+                            ) : order.action === "Request Shipment" ? (
+                              <button
+                                onClick={() => {
+                                  setShipmentOrder(order);
+                                  setShowRequestShipment(true);
+                                }}
+                                className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 bg-green-500 text-background-dark text-xs font-bold hover:bg-green-400 transition-colors shadow-sm"
+                              >
+                                Request Shipment
+                              </button>
+                            ) : order.action === "delete" ? (
+                              <button className="text-text-secondary hover:text-white transition-colors">
+                                <span className="material-symbols-outlined text-[18px]">
+                                  delete
+                                </span>
+                              </button>
+                            ) : (
+                              <span
+                                className={`text-xs italic flex items-center gap-1 ${order.status === "QC Failed" ? "text-red-400" : order.status === "Delivered & Paid" ? "text-green-400" : "text-text-secondary"}`}
+                              >
+                                <span className="material-symbols-outlined text-[14px]">
+                                  {order.status === "Created"
+                                    ? "hourglass_top"
+                                    : order.status === "Batch Created"
+                                      ? "science"
+                                      : order.status === "QC Failed"
+                                        ? "cancel"
                                         : order.status === "Shipment Requested"
-                                          ? "In Transit — Awaiting Export"
+                                          ? "local_shipping"
                                           : order.status === "Export Cleared"
-                                            ? "Export Done — Awaiting Import"
+                                            ? "flight_takeoff"
                                             : order.status === "Import Cleared"
-                                              ? "Arrived — Awaiting Buyer Confirmation"
-                                              : order.status === "Delivered & Paid"
-                                                ? "✓ Completed & Paid"
-                                                : "Awaiting Next Step"}
-                            </span>
-                          )}
+                                              ? "flight_land"
+                                              : order.status ===
+                                                  "Delivered & Paid"
+                                                ? "verified"
+                                                : "schedule"}
+                                </span>
+                                {order.status === "Created"
+                                  ? "Waiting for Buyer Acceptance"
+                                  : order.status === "Accepted"
+                                    ? "Buyer Accepted — Create Batch"
+                                    : order.status === "Batch Created"
+                                      ? "Awaiting QC Review"
+                                      : order.status === "QC Failed"
+                                        ? "QC Rejected — Review Required"
+                                        : order.status === "QC Approved"
+                                          ? "QC Passed — Request Shipment"
+                                          : order.status ===
+                                              "Shipment Requested"
+                                            ? "In Transit — Awaiting Export"
+                                            : order.status === "Export Cleared"
+                                              ? "Export Done — Awaiting Import"
+                                              : order.status ===
+                                                  "Import Cleared"
+                                                ? "Arrived — Awaiting Buyer Confirmation"
+                                                : order.status ===
+                                                    "Delivered & Paid"
+                                                  ? "✓ Completed & Paid"
+                                                  : "Awaiting Next Step"}
+                              </span>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -533,12 +607,21 @@ export default function SellerDashboard() {
                       warning
                     </span>
                     <div>
-                      <p className="text-xs text-red-400 font-bold mb-1">Compliance Required</p>
+                      <p className="text-xs text-red-400 font-bold mb-1">
+                        Compliance Required
+                      </p>
                       <p className="text-xs text-red-400/80 leading-relaxed">
-                        You must hold all 4 compliance certificates before creating orders.
+                        You must hold all 4 compliance certificates before
+                        creating orders.
                         {complianceDetails && (
                           <span className="block mt-1">
-                            Missing: {complianceDetails.filter(c => !c.isValid).map(c => c.type.replace(/([A-Z])/g, ' $1').trim()).join(', ')}
+                            Missing:{" "}
+                            {complianceDetails
+                              .filter((c) => !c.isValid)
+                              .map((c) =>
+                                c.type.replace(/([A-Z])/g, " $1").trim(),
+                              )
+                              .join(", ")}
                           </span>
                         )}
                       </p>
@@ -553,7 +636,13 @@ export default function SellerDashboard() {
                   }`}
                   type="button"
                   onClick={handleSubmitOrder}
-                  disabled={creatingOrder || !buyerAddress || !details || !amount || isCompliant === false}
+                  disabled={
+                    creatingOrder ||
+                    !buyerAddress ||
+                    !details ||
+                    !amount ||
+                    isCompliant === false
+                  }
                 >
                   {creatingOrder ? (
                     <span className="material-symbols-outlined animate-spin text-lg">
@@ -561,7 +650,9 @@ export default function SellerDashboard() {
                     </span>
                   ) : isCompliant === false ? (
                     <span className="flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[18px]">block</span>
+                      <span className="material-symbols-outlined text-[18px]">
+                        block
+                      </span>
                       Compliance Certificates Required
                     </span>
                   ) : (
@@ -833,7 +924,7 @@ export default function SellerDashboard() {
                   </span>{" "}
                   View on Etherscan
                 </button>
-                <button 
+                <button
                   onClick={() => generateOrderPDF(trackingOrder)}
                   className="flex-1 px-4 py-2.5 bg-primary/10 text-primary border border-primary/20 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-2"
                 >
@@ -903,7 +994,9 @@ export default function SellerDashboard() {
                   </label>
                   <input
                     className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3"
-                    defaultValue={userProfile?.contactNumber || "+880 (123) 456-7890"}
+                    defaultValue={
+                      userProfile?.contactNumber || "+880 (123) 456-7890"
+                    }
                   />
                 </div>
                 <div className="flex flex-col gap-2">
@@ -991,7 +1084,8 @@ export default function SellerDashboard() {
                     Request Shipment
                   </h3>
                   <p className="text-text-secondary text-sm mt-1">
-                    Assign a Freight Forwarder for Batch #{shipmentOrder.batchId}
+                    Assign a Freight Forwarder for Batch #
+                    {shipmentOrder.batchId}
                   </p>
                 </div>
                 <button
@@ -1006,18 +1100,28 @@ export default function SellerDashboard() {
                 <div className="p-4 rounded-lg bg-background-dark border border-border-dark">
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <span className="text-xs text-text-secondary uppercase tracking-wider">Order</span>
-                      <p className="text-white font-mono font-medium">{shipmentOrder.id}</p>
+                      <span className="text-xs text-text-secondary uppercase tracking-wider">
+                        Order
+                      </span>
+                      <p className="text-white font-mono font-medium">
+                        {shipmentOrder.id}
+                      </p>
                     </div>
                     <div>
-                      <span className="text-xs text-text-secondary uppercase tracking-wider">Batch</span>
-                      <p className="text-white font-mono">#{shipmentOrder.batchId}</p>
+                      <span className="text-xs text-text-secondary uppercase tracking-wider">
+                        Batch
+                      </span>
+                      <p className="text-white font-mono">
+                        #{shipmentOrder.batchId}
+                      </p>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium text-white">Freight Forwarder Wallet</label>
+                  <label className="text-sm font-medium text-white">
+                    Freight Forwarder Wallet
+                  </label>
                   <input
                     className="w-full bg-background-dark border border-border-dark text-white font-mono text-sm rounded-lg focus:ring-primary focus:border-primary p-3"
                     placeholder="0x... (Leave empty for default network FF)"
@@ -1028,7 +1132,9 @@ export default function SellerDashboard() {
               </div>
 
               <div className="p-6 border-t border-border-dark bg-surface-darker flex justify-between items-center">
-                <p className="text-xs text-text-secondary">FF will handle export documentation.</p>
+                <p className="text-xs text-text-secondary">
+                  FF will handle export documentation.
+                </p>
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowRequestShipment(false)}

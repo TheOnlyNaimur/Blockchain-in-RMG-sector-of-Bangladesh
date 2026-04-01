@@ -1,0 +1,42 @@
+No files changed, compilation skipped
+Script ran successfully.
+
+== Return ==
+0: contract MyContract 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+
+== Logs ==
+  MockUSDT deployed to: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+    Minted to Deployer : 500000000000000000000000
+    Minted to Buyer    : 500000000000000000000000
+  MyContract deployed to: 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+    certifier        : 0x90F79bf6EB2c4f870365E785982E1f101E93b906
+    qualitychecker   : 0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65
+    freightForwarder : 0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc
+    exportCustoms    : 0x976EA74026E726554dB657fA54763abd0C3a0aa9
+    importCustoms    : 0x14dC79964da2C08b23698B3D3cc7Ca32193d9955
+    complianceChecker: 0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f
+    usdt             : 0x5FbDB2315678afecb367f032d93F642f64180aa3
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 31337
+
+Estimated gas price: 2.750404 gwei
+
+Estimated total gas used for script: 4838598
+
+Estimated amount required: 0.013308099293592 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /Users/mdrakibhossain/Downloads/github/Blockchain-in-RMG-sector-of-Bangladesh/broadcast/Deploy.s.sol/31337/run-latest.json
+
+Sensitive values saved to: /Users/mdrakibhossain/Downloads/github/Blockchain-in-RMG-sector-of-Bangladesh/cache/Deploy.s.sol/31337/run-latest.json
+

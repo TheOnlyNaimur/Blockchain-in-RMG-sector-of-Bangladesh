@@ -142,6 +142,8 @@ async function getSellerComplianceStatus(req, res, next) {
     const contract = getReadContract();
     const complianceStatus = await contract.getSellerCompliance(sellerAddress);
     const isFullyCompliant = await contract.isSellerCompliant(sellerAddress);
+    const sellerCertHash = await contract.getSellerCertHash(sellerAddress);
+    const isApprovedOnChain = sellerCertHash !== ethers.ZeroHash;
 
     const COMPLIANCE_TYPES = [
       "FireSafety",
@@ -158,6 +160,7 @@ async function getSellerComplianceStatus(req, res, next) {
     res.json({
       success: true,
       sellerAddress,
+      isApprovedOnChain,
       isFullyCompliant,
       compliance: details,
     });
