@@ -19,19 +19,18 @@ export default function SellerRegistration() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setIsLoading(true);
     setValidationError("");
 
     try {
       if (!walletClient || !address) {
         setValidationError("Please connect your wallet first");
-        setIsLoading(false);
         return;
       }
 
       if (!tin || !contact) {
-        setValidationError("Please fill in all required fields (TIN and Contact Number)");
-        setIsLoading(false);
+        setValidationError(
+          "Please fill in all required fields (TIN and Contact Number)",
+        );
         return;
       }
 
@@ -68,8 +67,6 @@ export default function SellerRegistration() {
       // Error is already set in the hook's `error` state and displayed in the modal UI above.
       // We just log here for debugging — no need for an alert().
       console.error("Registration failed:", err);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -308,14 +305,14 @@ export default function SellerRegistration() {
               <button
                 type="submit"
                 className={`px-5 py-2.5 text-sm font-bold rounded-lg flex items-center gap-2 transition-colors ${
-                  name && tin && contact && terms && !isLoading
+                  name && tin && contact && terms && !loading
                     ? "text-[#102216] bg-primary hover:bg-primary-hover cursor-pointer"
                     : "text-[#102216] bg-[#5c7263] cursor-not-allowed opacity-70"
                 }`}
-                disabled={!(name && tin && contact && terms) || isLoading}
+                disabled={!(name && tin && contact && terms) || loading}
                 onClick={handleSubmit}
               >
-                {isLoading ? (
+                {loading ? (
                   <span>Confirming with MetaMask...</span>
                 ) : (
                   <>
