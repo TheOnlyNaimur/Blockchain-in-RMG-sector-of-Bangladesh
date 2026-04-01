@@ -8,20 +8,30 @@ const { safeContractCall } = require("../utils/contractErrors");
  */
 async function issueCompliance(req, res, next) {
   try {
-    const { sellerAddress, certType, certDocHash, expiresAt } = req.body;
-    const privateKey = req.body.privateKey || process.env.COMPLIANCE_CHECKER_PRIVATE_KEY;
+    const { sellerAddress, certType, certDocHash, expiresAt, ipfsCid } =
+      req.body;
+    const privateKey =
+      req.body.privateKey || process.env.COMPLIANCE_CHECKER_PRIVATE_KEY;
 
-    if (!sellerAddress || certType === undefined || !certDocHash || !expiresAt || !privateKey) {
+    if (
+      !sellerAddress ||
+      certType === undefined ||
+      !certDocHash ||
+      !expiresAt ||
+      !privateKey
+    ) {
       return res.status(400).json({
         success: false,
-        error: "sellerAddress, certType (0-3), certDocHash, expiresAt, and privateKey (or backend key) are required",
+        error:
+          "sellerAddress, certType (0-3), certDocHash, expiresAt, and privateKey (or backend key) are required",
       });
     }
 
     if (certType < 0 || certType > 3) {
       return res.status(400).json({
         success: false,
-        error: "certType must be 0 (FireSafety), 1 (BuildingSafety), 2 (LaborStandards), or 3 (Environmental)",
+        error:
+          "certType must be 0 (FireSafety), 1 (BuildingSafety), 2 (LaborStandards), or 3 (Environmental)",
       });
     }
 
@@ -36,12 +46,18 @@ async function issueCompliance(req, res, next) {
     if (!result) return;
 
     const { receipt } = result;
-    const COMPLIANCE_TYPES = ["FireSafety", "BuildingSafety", "LaborStandards", "Environmental"];
+    const COMPLIANCE_TYPES = [
+      "FireSafety",
+      "BuildingSafety",
+      "LaborStandards",
+      "Environmental",
+    ];
 
     await saveRecord("COMPLIANCE_ISSUED", receipt, {
       sellerAddress,
       certType: COMPLIANCE_TYPES[certType],
       certDocHash,
+      ipfsCid: ipfsCid || null, // Store IPFS CID if provided
       expiresAt,
       issuedBy: receipt.from,
     });
@@ -51,6 +67,7 @@ async function issueCompliance(req, res, next) {
       txHash: receipt.hash,
       blockNumber: receipt.blockNumber,
       message: `${COMPLIANCE_TYPES[certType]} compliance certificate issued for seller ${sellerAddress}`,
+      ipfsCid: ipfsCid || null,
     });
   } catch (err) {
     next(err);
@@ -63,12 +80,14 @@ async function issueCompliance(req, res, next) {
 async function revokeCompliance(req, res, next) {
   try {
     const { sellerAddress, certType } = req.body;
-    const privateKey = req.body.privateKey || process.env.COMPLIANCE_CHECKER_PRIVATE_KEY;
+    const privateKey =
+      req.body.privateKey || process.env.COMPLIANCE_CHECKER_PRIVATE_KEY;
 
     if (!sellerAddress || certType === undefined || !privateKey) {
       return res.status(400).json({
         success: false,
-        error: "sellerAddress, certType (0-3), and privateKey (or backend key) are required",
+        error:
+          "sellerAddress, certType (0-3), and privateKey (or backend key) are required",
       });
     }
 
@@ -83,7 +102,12 @@ async function revokeCompliance(req, res, next) {
     if (!result) return;
 
     const { receipt } = result;
-    const COMPLIANCE_TYPES = ["FireSafety", "BuildingSafety", "LaborStandards", "Environmental"];
+    const COMPLIANCE_TYPES = [
+      "FireSafety",
+      "BuildingSafety",
+      "LaborStandards",
+      "Environmental",
+    ];
 
     await saveRecord("COMPLIANCE_REVOKED", receipt, {
       sellerAddress,
@@ -110,14 +134,21 @@ async function getSellerComplianceStatus(req, res, next) {
     const { sellerAddress } = req.params;
 
     if (!sellerAddress || !ethers.isAddress(sellerAddress)) {
-      return res.status(400).json({ success: false, error: "Valid sellerAddress is required" });
+      return res
+        .status(400)
+        .json({ success: false, error: "Valid sellerAddress is required" });
     }
 
     const contract = getReadContract();
     const complianceStatus = await contract.getSellerCompliance(sellerAddress);
     const isFullyCompliant = await contract.isSellerCompliant(sellerAddress);
 
-    const COMPLIANCE_TYPES = ["FireSafety", "BuildingSafety", "LaborStandards", "Environmental"];
+    const COMPLIANCE_TYPES = [
+      "FireSafety",
+      "BuildingSafety",
+      "LaborStandards",
+      "Environmental",
+    ];
 
     const details = COMPLIANCE_TYPES.map((type, i) => ({
       type,
@@ -147,7 +178,12 @@ async function getComplianceEvents(req, res, next) {
       contract.queryFilter(contract.filters.ComplianceRevoked()),
     ]);
 
-    const COMPLIANCE_TYPES = ["FireSafety", "BuildingSafety", "LaborStandards", "Environmental"];
+    const COMPLIANCE_TYPES = [
+      "FireSafety",
+      "BuildingSafety",
+      "LaborStandards",
+      "Environmental",
+    ];
 
     const issued = issuedEvents.map((e) => ({
       type: "ComplianceIssued",
@@ -166,7 +202,9 @@ async function getComplianceEvents(req, res, next) {
       txHash: e.transactionHash,
     }));
 
-    const allEvents = [...issued, ...revoked].sort((a, b) => a.blockNumber - b.blockNumber);
+    const allEvents = [...issued, ...revoked].sort(
+      (a, b) => a.blockNumber - b.blockNumber,
+    );
 
     res.json({ success: true, events: allEvents });
   } catch (err) {
