@@ -50,14 +50,14 @@ export default function SellerDashboard() {
 
   // Fetch compliance status on mount
   useEffect(() => {
-    const addr = userProfile?.address || walletAddress;
+    const addr = walletAddress || userProfile?.address;
     if (addr) {
       fetch(`http://localhost:3000/api/compliance/${addr}`)
         .then((res) => res.json())
         .then((data) => {
           if (data.success) {
             setIsCompliant(data.isFullyCompliant);
-            setIsApprovedOnChain(Boolean(data.isApprovedOnChain));
+            setIsApprovedOnChain(Boolean(data.isApproved));
             setComplianceDetails(data.compliance);
           } else {
             setIsCompliant(false);

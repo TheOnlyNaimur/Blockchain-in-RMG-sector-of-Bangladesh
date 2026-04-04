@@ -34,6 +34,44 @@ const CERT_TYPES = [
   },
 ];
 
+const CERT_TYPE_KEYS = [
+  "FireSafety",
+  "BuildingSafety",
+  "LaborStandards",
+  "Environmental",
+];
+
+const CERT_STATUS_ROWS = [
+  {
+    key: "FireSafety",
+    label: "Fire Safety",
+    icon: "fire_extinguisher",
+    color: "text-red-500",
+    field: "hasFire",
+  },
+  {
+    key: "BuildingSafety",
+    label: "Building Safety",
+    icon: "domain",
+    color: "text-blue-500",
+    field: "hasBuilding",
+  },
+  {
+    key: "LaborStandards",
+    label: "Labor Standards",
+    icon: "engineering",
+    color: "text-amber-500",
+    field: "hasLabor",
+  },
+  {
+    key: "Environmental",
+    label: "Environmental",
+    icon: "eco",
+    color: "text-green-500",
+    field: "hasEnv",
+  },
+];
+
 export default function CompliancePanel() {
   const [sellerAddress, setSellerAddress] = useState("");
   const [selectedType, setSelectedType] = useState(0);
@@ -51,32 +89,42 @@ export default function CompliancePanel() {
     setFetchingStatus(true);
     try {
       const response = await fetch(
-        `http://localhost:3000/api/compliance/${sellerAddress}`,
+        `http://localhost:3000/api/compliance/${sellerAddress}?t=${Date.now()}`,
+        { cache: "no-store" },
       );
       const data = await response.json();
       if (!response.ok || !data.success)
         throw new Error(data.error || "Failed to fetch status");
 
-      const fire = data.compliance.find(
-        (c) => c.type === "FireSafety",
-      )?.isValid;
-      const building = data.compliance.find(
-        (c) => c.type === "BuildingSafety",
-      )?.isValid;
-      const labor = data.compliance.find(
-        (c) => c.type === "LaborStandards",
-      )?.isValid;
-      const env = data.compliance.find(
-        (c) => c.type === "Environmental",
-      )?.isValid;
+      const complianceByType = Object.fromEntries(
+        (data.compliance || []).map((c) => [c.type, c]),
+      );
 
       setSellerStatus({
-        isRegistered: Boolean(data.isApprovedOnChain),
+        isRegistered: Boolean(data.isApproved),
         name: "Queried Factory",
-        hasFire: fire,
-        hasBuilding: building,
-        hasLabor: labor,
-        hasEnv: env,
+        hasFire: Boolean(complianceByType.FireSafety?.isValid),
+        hasBuilding: Boolean(complianceByType.BuildingSafety?.isValid),
+        hasLabor: Boolean(complianceByType.LaborStandards?.isValid),
+        hasEnv: Boolean(complianceByType.Environmental?.isValid),
+        docs: {
+          FireSafety: {
+            ipfsCid: complianceByType.FireSafety?.ipfsCid || null,
+            certDocHash: complianceByType.FireSafety?.certDocHash || null,
+          },
+          BuildingSafety: {
+            ipfsCid: complianceByType.BuildingSafety?.ipfsCid || null,
+            certDocHash: complianceByType.BuildingSafety?.certDocHash || null,
+          },
+          LaborStandards: {
+            ipfsCid: complianceByType.LaborStandards?.ipfsCid || null,
+            certDocHash: complianceByType.LaborStandards?.certDocHash || null,
+          },
+          Environmental: {
+            ipfsCid: complianceByType.Environmental?.ipfsCid || null,
+            certDocHash: complianceByType.Environmental?.certDocHash || null,
+          },
+        },
       });
     } catch (error) {
       console.error("Error fetching seller status:", error);
@@ -163,6 +211,34 @@ export default function CompliancePanel() {
           "...",
         { id: "issue" },
       );
+
+      // Optimistic UI update so the issued certificate appears immediately.
+      const certTypeKey = CERT_TYPE_KEYS[selectedType];
+      setSellerStatus((prev) => {
+        if (!prev) return prev;
+
+        const fieldByType = {
+          FireSafety: "hasFire",
+          BuildingSafety: "hasBuilding",
+          LaborStandards: "hasLabor",
+          Environmental: "hasEnv",
+        };
+
+        const updated = {
+          ...prev,
+          [fieldByType[certTypeKey]]: true,
+          docs: {
+            ...(prev.docs || {}),
+            [certTypeKey]: {
+              ipfsCid: cid,
+              certDocHash,
+            },
+          },
+        };
+
+        return updated;
+      });
+
       setCertFile(null);
       setCertFileName("");
       checkSellerStatus();
@@ -367,89 +443,52 @@ export default function CompliancePanel() {
                     Mandatory Certificates Held
                   </h4>
                   <div className="space-y-3">
-                    {/* Fire Safety */}
-                    <div className="flex items-center justify-between p-3 bg-[#1A221C] rounded-lg border border-border-dark">
-                      <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-red-500">
-                          fire_extinguisher
-                        </span>
-                        <span className="text-gray-300 font-medium">
-                          Fire Safety
-                        </span>
-                      </div>
-                      {sellerStatus.hasFire ? (
-                        <span className="material-symbols-outlined text-green-500">
-                          check_circle
-                        </span>
-                      ) : (
-                        <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded">
-                          Missing
-                        </span>
-                      )}
-                    </div>
+                    {CERT_STATUS_ROWS.map((row) => {
+                      const isValid = Boolean(sellerStatus[row.field]);
+                      const ipfsCid = sellerStatus?.docs?.[row.key]?.ipfsCid;
 
-                    {/* Building */}
-                    <div className="flex items-center justify-between p-3 bg-[#1A221C] rounded-lg border border-border-dark">
-                      <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-blue-500">
-                          domain
-                        </span>
-                        <span className="text-gray-300 font-medium">
-                          Building Safety
-                        </span>
-                      </div>
-                      {sellerStatus.hasBuilding ? (
-                        <span className="material-symbols-outlined text-green-500">
-                          check_circle
-                        </span>
-                      ) : (
-                        <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded">
-                          Missing
-                        </span>
-                      )}
-                    </div>
+                      return (
+                        <div
+                          key={row.key}
+                          className="flex items-center justify-between p-3 bg-[#1A221C] rounded-lg border border-border-dark"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={`material-symbols-outlined ${row.color}`}
+                            >
+                              {row.icon}
+                            </span>
+                            <span className="text-gray-300 font-medium">
+                              {row.label}
+                            </span>
+                          </div>
 
-                    {/* Labor */}
-                    <div className="flex items-center justify-between p-3 bg-[#1A221C] rounded-lg border border-border-dark">
-                      <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-amber-500">
-                          engineering
-                        </span>
-                        <span className="text-gray-300 font-medium">
-                          Labor Standards
-                        </span>
-                      </div>
-                      {sellerStatus.hasLabor ? (
-                        <span className="material-symbols-outlined text-green-500">
-                          check_circle
-                        </span>
-                      ) : (
-                        <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded">
-                          Missing
-                        </span>
-                      )}
-                    </div>
+                          <div className="flex items-center gap-2">
+                            {isValid ? (
+                              <span className="material-symbols-outlined text-green-500">
+                                check_circle
+                              </span>
+                            ) : (
+                              <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded">
+                                Missing
+                              </span>
+                            )}
 
-                    {/* Env */}
-                    <div className="flex items-center justify-between p-3 bg-[#1A221C] rounded-lg border border-border-dark">
-                      <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-green-500">
-                          eco
-                        </span>
-                        <span className="text-gray-300 font-medium">
-                          Environmental
-                        </span>
-                      </div>
-                      {sellerStatus.hasEnv ? (
-                        <span className="material-symbols-outlined text-green-500">
-                          check_circle
-                        </span>
-                      ) : (
-                        <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded">
-                          Missing
-                        </span>
-                      )}
-                    </div>
+                            {ipfsCid && (
+                              <a
+                                href={`https://ipfs.io/ipfs/${ipfsCid}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-xs px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                                title="Open uploaded certificate"
+                              >
+                                View Document
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>

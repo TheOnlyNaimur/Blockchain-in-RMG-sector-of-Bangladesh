@@ -2,6 +2,7 @@ const { ethers } = require("ethers");
 const { getWriteContract, getReadContract } = require("../config/contract");
 const saveRecord = require("../utils/saveRecord");
 const { safeContractCall } = require("../utils/contractErrors");
+const Record = require("../models/Record");
 
 /**
  * POST /api/compliance/issue
@@ -140,10 +141,39 @@ async function getSellerComplianceStatus(req, res, next) {
     }
 
     const contract = getReadContract();
-    const complianceStatus = await contract.getSellerCompliance(sellerAddress);
-    const isFullyCompliant = await contract.isSellerCompliant(sellerAddress);
-    const sellerCertHash = await contract.getSellerCertHash(sellerAddress);
-    const isApprovedOnChain = sellerCertHash !== ethers.ZeroHash;
+    let complianceStatus = [false, false, false, false];
+    let isFullyCompliant = false;
+    let isApprovedOnChain = false;
+    let chainReadError = null;
+
+    try {
+      const [complianceRes, fullComplianceRes, certHashRes] = await Promise.all(
+        [
+          contract.getSellerCompliance(sellerAddress),
+          contract.isSellerCompliant(sellerAddress),
+          contract.getSellerCertHash(sellerAddress),
+        ],
+      );
+
+      // Normalize contract return values to booleans.
+      complianceStatus = Array.from(complianceRes, (v) => Boolean(v));
+      isFullyCompliant = Boolean(fullComplianceRes);
+      isApprovedOnChain = certHashRes !== ethers.ZeroHash;
+    } catch (err) {
+      // Keep endpoint functional even if contract address/ABI/network is out of sync.
+      chainReadError =
+        err?.shortMessage || err?.message || "Contract read failed";
+    }
+
+    // Fallback to latest MongoDB seller approval record. Useful when UI should
+    // reflect persisted approval history even if current chain state is reset.
+    const latestSellerApproval = await Record.findOne({
+      recordType: "SELLER_APPROVED",
+      "rawData.sellerAddress": { $regex: `^${sellerAddress}$`, $options: "i" },
+    }).sort({ createdAt: -1 });
+    const isApprovedInMongo =
+      latestSellerApproval?.rawData?.decision === "approved";
+    const isApproved = isApprovedOnChain || isApprovedInMongo;
 
     const COMPLIANCE_TYPES = [
       "FireSafety",
@@ -152,17 +182,73 @@ async function getSellerComplianceStatus(req, res, next) {
       "Environmental",
     ];
 
+    // Fallback/augment compliance status from MongoDB history.
+    // Latest action per cert type wins (ISSUED => valid if not expired, REVOKED => invalid).
+    const mongoComplianceMap = {
+      FireSafety: false,
+      BuildingSafety: false,
+      LaborStandards: false,
+      Environmental: false,
+    };
+    const mongoComplianceMeta = {
+      FireSafety: null,
+      BuildingSafety: null,
+      LaborStandards: null,
+      Environmental: null,
+    };
+    const nowTs = Math.floor(Date.now() / 1000);
+    const mongoComplianceHistory = await Record.find({
+      recordType: { $in: ["COMPLIANCE_ISSUED", "COMPLIANCE_REVOKED"] },
+      "rawData.sellerAddress": { $regex: `^${sellerAddress}$`, $options: "i" },
+    }).sort({ createdAt: 1, blockNumber: 1 });
+
+    for (const rec of mongoComplianceHistory) {
+      const certType = rec?.rawData?.certType;
+      if (!COMPLIANCE_TYPES.includes(certType)) continue;
+
+      if (rec.recordType === "COMPLIANCE_REVOKED") {
+        mongoComplianceMap[certType] = false;
+        mongoComplianceMeta[certType] = null;
+        continue;
+      }
+
+      if (rec.recordType === "COMPLIANCE_ISSUED") {
+        const expiresAt = Number(rec?.rawData?.expiresAt || 0);
+        const notExpired = !expiresAt || expiresAt > nowTs;
+        mongoComplianceMap[certType] = notExpired;
+        mongoComplianceMeta[certType] = {
+          certDocHash: rec?.rawData?.certDocHash || null,
+          ipfsCid: rec?.rawData?.ipfsCid || null,
+          expiresAt: expiresAt || null,
+        };
+      }
+    }
+
+    // Merge chain + Mongo views so persisted records remain visible after local chain resets.
+    complianceStatus = COMPLIANCE_TYPES.map(
+      (type, i) =>
+        Boolean(complianceStatus[i]) || Boolean(mongoComplianceMap[type]),
+    );
+    isFullyCompliant = complianceStatus.every(Boolean);
+
     const details = COMPLIANCE_TYPES.map((type, i) => ({
       type,
       isValid: complianceStatus[i],
+      certDocHash: mongoComplianceMeta[type]?.certDocHash || null,
+      ipfsCid: mongoComplianceMeta[type]?.ipfsCid || null,
+      expiresAt: mongoComplianceMeta[type]?.expiresAt || null,
     }));
 
     res.json({
       success: true,
       sellerAddress,
+      isApproved,
       isApprovedOnChain,
+      isApprovedInMongo,
       isFullyCompliant,
       compliance: details,
+      chainReadOk: !chainReadError,
+      chainReadError,
     });
   } catch (err) {
     next(err);
