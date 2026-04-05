@@ -37,10 +37,18 @@ export default function BuyerDashboard() {
 
   useEffect(() => {
     const addr = userProfile?.address || walletAddress;
+    console.log("BuyerDashboard filtering orders:");
+    console.log("  Connected buyer address:", addr);
+    console.log("  Total orders from backend:", allOrders.length);
+    console.log("  All order buyers:", allOrders.map(o => ({ orderId: o.orderId, buyer: o.buyer, status: o.status })));
+    
     if (addr && allOrders.length > 0) {
-      setOrders(allOrders.filter(o => o.buyer.toLowerCase() === addr.toLowerCase()));
+      const filtered = allOrders.filter(o => o.buyer.toLowerCase() === addr.toLowerCase());
+      console.log("  Filtered orders after matching buyer:", filtered.length);
+      setOrders(filtered);
     } else if (allOrders.length > 0) {
       // If no address can be determined, show all orders so the dashboard isn't blank
+      console.log("  No buyer address found, showing all orders");
       setOrders(allOrders);
     }
   }, [allOrders, userProfile, walletAddress]);

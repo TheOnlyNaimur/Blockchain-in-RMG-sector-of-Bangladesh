@@ -83,6 +83,11 @@ export default function SellerDashboard() {
   }, [allOrders, userProfile, walletAddress]);
 
   const handleSubmitOrder = async () => {
+    console.log("Submitting order proposal...");
+    console.log("Seller compliance status:", isCompliant);
+    console.log("Buyer address:", buyerAddress);
+    console.log("Order details:", { details, amount, hsCode, destination });
+    
     if (!buyerAddress || !details || !amount) return;
     if (isCompliant === false) {
       setToast({
@@ -101,6 +106,7 @@ export default function SellerDashboard() {
         hsCode,
         destination,
       });
+      console.log("Order creation result:", result);
       setToast({
         message: `Order proposed! Tx: ${result.txHash.slice(0, 10)}... ID: ${result.orderId}`,
         type: "success",
@@ -114,6 +120,7 @@ export default function SellerDashboard() {
       setDestination("");
     } catch (err) {
       // Show backend compliance error or generic message
+      console.error("Order creation error:", err);
       const errMsg = err?.message || err?.error || "Failed to create order";
       setToast({ message: errMsg, type: "error", icon: "error" });
     }
