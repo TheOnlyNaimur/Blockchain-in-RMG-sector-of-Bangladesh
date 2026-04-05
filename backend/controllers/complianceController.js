@@ -37,6 +37,13 @@ async function issueCompliance(req, res, next) {
     }
 
     const contract = getWriteContract(privateKey);
+    console.log("Issuing compliance certificate on-chain:");
+    console.log("  Seller Address:", sellerAddress);
+    console.log("  Cert Type:", certType);
+    console.log("  Cert Doc Hash:", certDocHash);
+    console.log("  Expires At:", expiresAt);
+    console.log("  Contract address:", contract.target || contract.address);
+    
     const result = await safeContractCall({
       contract,
       method: "issueCompliance",
@@ -44,6 +51,7 @@ async function issueCompliance(req, res, next) {
       context: "issueCompliance",
       res,
     });
+    console.log("Compliance issuance result:", result);
     if (!result) return;
 
     const { receipt } = result;
