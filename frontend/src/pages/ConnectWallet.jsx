@@ -191,6 +191,12 @@ export default function ConnectWallet() {
               trade. Secure, transparent, and immutable logistics data at your
               fingertips.
             </p>
+            <div className="mt-8 flex justify-center">
+              <Link to="/ledger" className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-6 py-2.5 text-sm font-medium text-primary hover:bg-primary/20 transition-all hover:shadow-[0_0_15px_rgba(19,236,91,0.2)] hover:border-primary/50 cursor-pointer">
+                <span className="material-symbols-outlined text-base">public</span>
+                View Public Blockchain Ledger
+              </Link>
+            </div>
           </div>
 
           {/* Wallet Card */}

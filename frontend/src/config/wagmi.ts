@@ -2,12 +2,9 @@ import { http, createConfig } from "wagmi";
 import { localhost, sepolia } from "wagmi/chains";
 import { injected } from "wagmi/connectors";
 
-// Determine which chain to use based on env or default to localhost (Anvil)
 const CHAIN_ID = parseInt((import.meta.env.VITE_CHAIN_ID as string) || "31337");
-const RPC_URL =
-  (import.meta.env.VITE_RPC_URL as string) || "http://127.0.0.1:8545";
+const RPC_URL = (import.meta.env.VITE_RPC_URL as string) || "http://127.0.0.1:8545";
 
-// Create local Anvil chain config
 const anvil = {
   id: 31337,
   name: "Anvil Local",
@@ -18,21 +15,28 @@ const anvil = {
   },
 } as const;
 
-// Select chain based on CHAIN_ID - cast to any to avoid type complexity
+const customSepolia = {
+  ...sepolia,
+  rpcUrls: {
+    default: { http: [RPC_URL] },
+    public: { http: [RPC_URL] },
+  },
+} as const;
+
 const chains = (
-  CHAIN_ID === 31337 ? [anvil, localhost] : [sepolia, localhost]
+  CHAIN_ID === 31337 ? [anvil, localhost] : [customSepolia, localhost]
 ) as any;
-const primaryChain = CHAIN_ID === 31337 ? anvil : sepolia;
+const primaryChain = CHAIN_ID === 31337 ? anvil : customSepolia;
 
 export const wagmiConfig = createConfig({
   chains,
   connectors: [
-    injected(), // MetaMask and other browser wallets via window.ethereum
+    injected(),
   ],
   transports: {
-    [anvil.id]: http(RPC_URL),
+    [anvil.id]: http(CHAIN_ID === 31337 ? RPC_URL : "http://127.0.0.1:8545"),
     [localhost.id]: http("http://127.0.0.1:8545"),
-    [sepolia.id]: http("https://sepolia.infura.io/v3/YOUR_INFURA_KEY"),
+    [customSepolia.id]: http(RPC_URL),
   },
 });
 

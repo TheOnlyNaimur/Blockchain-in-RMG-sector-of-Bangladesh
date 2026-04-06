@@ -7,7 +7,9 @@ import { useDocumentUpload, useShipmentEvents } from "../hooks";
 
 export default function FreightForwarderDocs() {
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [uploadBatch, setUploadBatch] = useState(null);
+  const [viewBatch, setViewBatch] = useState(null);
   const [fileName, setFileName] = useState("");
   const [documentNotes, setDocumentNotes] = useState("");
   const { execute: uploadDocument, loading } = useDocumentUpload();
@@ -21,6 +23,11 @@ export default function FreightForwarderDocs() {
     setShowUploadModal(true);
     setFileName("");
     setSuccessMessage("");
+  };
+
+  const handleViewDocs = (shipment) => {
+    setViewBatch(shipment);
+    setShowViewModal(true);
   };
 
   const [docType, setDocType] = useState("0"); // 0=Invoice, 1=Packing, 2=BOL, 3=Origin
@@ -226,11 +233,14 @@ export default function FreightForwarderDocs() {
                       </td>
                       <td className="p-4 text-right">
                         {s.docStatus === "Verified" || s.docStatus?.includes("Docs Uploaded") ? (
-                          <button className="text-text-secondary hover:text-white font-medium text-sm flex items-center gap-1 ml-auto">
+                          <button 
+                            onClick={() => handleViewDocs(s)}
+                            className="text-text-secondary hover:text-white font-medium text-sm flex items-center gap-1 ml-auto"
+                          >
                             <span className="material-symbols-outlined text-[16px]">
                               visibility
                             </span>{" "}
-                            View
+                            View Docs
                           </button>
                         ) : (
                           <button
@@ -550,14 +560,109 @@ export default function FreightForwarderDocs() {
                   <button
                     onClick={handleSubmitUpload}
                     className={`px-5 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-2 ${fileName ? "bg-primary text-background-dark hover:bg-primary-hover" : "bg-[#5c7263] text-[#102216] cursor-not-allowed opacity-70"}`}
-                    disabled={!fileName}
+                    disabled={!fileName || isUploading}
                   >
-                    <span className="material-symbols-outlined text-[18px]">
-                      send
-                    </span>
+                    {isUploading ? (
+                      <div className="w-5 h-5 border-2 border-[#111813]/20 border-t-[#111813] rounded-full animate-spin flex-shrink-0" />
+                    ) : (
+                      <span className="material-symbols-outlined text-[18px]">
+                        send
+                      </span>
+                    )}
                     Upload & Hash
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── VIEW DOCUMENTS MODAL ── */}
+        {showViewModal && viewBatch && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setShowViewModal(false)}
+          >
+            <div
+              className="w-full max-w-2xl bg-surface-dark border border-border-dark rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 border-b border-border-dark bg-surface-darker flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <span className="material-symbols-outlined text-primary">
+                      description
+                    </span>
+                    Submitted Documents
+                  </h3>
+                  <p className="text-text-secondary text-sm mt-1">
+                    Batch #{viewBatch.id}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowViewModal(false)}
+                  className="text-text-secondary hover:text-white transition-colors"
+                >
+                  <span className="material-symbols-outlined text-xl">close</span>
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-4">
+                {viewBatch.docs && viewBatch.docs.length > 0 ? (
+                  <div className="grid gap-4">
+                    {viewBatch.docs.map((doc, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-background-dark border border-border-dark rounded-lg p-4 flex flex-col gap-2"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <h4 className="text-white font-medium">
+                              {doc.type || "Document"}
+                            </h4>
+                            <p
+                              className="text-text-secondary text-xs truncate max-w-xs md:max-w-sm lg:max-w-md xl:max-w-lg"
+                              title={doc.name}
+                            >
+                              {doc.name}
+                            </p>
+                          </div>
+                          {doc.url && (
+                            <a
+                              href={doc.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs flex items-center gap-1 text-primary hover:underline bg-primary/10 px-3 py-1.5 rounded-md font-semibold border border-primary/20 transition-colors hover:bg-primary/20 shrink-0"
+                            >
+                              View File
+                              <span className="material-symbols-outlined text-[14px]">
+                                open_in_new
+                              </span>
+                            </a>
+                          )}
+                        </div>
+
+                        <div className="mt-2 bg-surface-dark border border-border-dark rounded-lg px-3 py-2 flex flex-col gap-1">
+                          <span className="text-[10px] text-text-secondary uppercase tracking-wider font-bold block">
+                            On-Chain Hash (Keccak256)
+                          </span>
+                          <p className="text-xs text-white font-mono break-all whitespace-pre-wrap select-all">
+                            {doc.hash || "Pending..."}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-10 bg-background-dark rounded-xl border border-border-dark border-dashed">
+                    <span className="material-symbols-outlined text-4xl text-text-secondary mb-2">
+                      find_in_page
+                    </span>
+                    <p className="text-text-secondary">
+                      No documents found for this shipment.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

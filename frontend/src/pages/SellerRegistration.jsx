@@ -16,6 +16,7 @@ export default function SellerRegistration() {
   const [terms, setTerms] = useState(false);
   const [successTxHash, setSuccessTxHash] = useState("");
   const [validationError, setValidationError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

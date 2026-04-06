@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import AppLayout from "../layouts/AppLayout";
 import { toast } from "react-hot-toast";
+import { keccak256, toUtf8Bytes } from "ethers";
 
 const CERT_TYPES = [
   { id: 0, label: "Fire Safety", icon: "fire_extinguisher", color: "text-red-500", bg: "bg-red-500/10" },
@@ -12,6 +13,7 @@ const CERT_TYPES = [
 export default function CompliancePanel() {
   const [sellerAddress, setSellerAddress] = useState("");
   const [selectedType, setSelectedType] = useState(0);
+  const [selectedFile, setSelectedFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [sellerStatus, setSellerStatus] = useState(null);
   const [fetchingStatus, setFetchingStatus] = useState(false);
@@ -38,6 +40,7 @@ export default function CompliancePanel() {
         hasBuilding: building,
         hasLabor: labor,
         hasEnv: env,
+        complianceDetails: data.compliance,
       });
     } catch (error) {
       console.error("Error fetching seller status:", error);
@@ -58,9 +61,25 @@ export default function CompliancePanel() {
   const handleIssueCert = async (e) => {
     e.preventDefault();
     if (!sellerAddress) return toast.error("Please enter a seller address");
+    if (!selectedFile) return toast.error("Please upload a certificate document");
 
     setLoading(true);
     try {
+      toast.loading("Uploading document to IPFS...", { id: "issue" });
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("label", `Compliance-${sellerAddress}-${selectedType}`);
+
+      const ipfsRes = await fetch("http://localhost:3000/api/ipfs/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const ipfsData = await ipfsRes.json();
+      if (!ipfsRes.ok || !ipfsData.success) throw new Error(ipfsData.error || "IPFS upload failed");
+
+      const cid = ipfsData.cid;
+      const certDocHash = keccak256(toUtf8Bytes(cid));
+
       toast.loading("Issuing certificate to blockchain...", { id: "issue" });
       const response = await fetch(`http://localhost:3000/api/compliance/issue`, {
         method: "POST",
@@ -68,7 +87,8 @@ export default function CompliancePanel() {
         body: JSON.stringify({
           sellerAddress,
           certType: selectedType,
-          certDocHash: "0xcc2a8069d343c5b5501fbfa15ceab4f52f4cba5b61b4097486e9cd726713c0ce", // Mock Hash
+          certDocHash,
+          cid,
           expiresAt: Math.floor(Date.now() / 1000) + 31536000 // 1 year expiry
         })
       });
@@ -77,6 +97,7 @@ export default function CompliancePanel() {
       if (!response.ok || !data.success) throw new Error(data.error);
       
       toast.success("Certificate issued successfully! ✅", { id: "issue" });
+      setSelectedFile(null);
       checkSellerStatus();
     } catch (error) {
       console.error(error);
@@ -153,6 +174,25 @@ export default function CompliancePanel() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-2">
+                  Upload Certificate Document (PDF, Image)
+                </label>
+                <div className="relative border-1 border-border-dark bg-[#1A221C] rounded-xl overflow-hidden focus-within:border-primary">
+                  <input 
+                    type="file" 
+                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                    className="w-full text-sm text-text-secondary file:mr-4 file:py-3 file:px-4 file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-[#111813] hover:file:bg-primary-hover cursor-pointer"
+                    required
+                  />
+                </div>
+                {selectedFile && (
+                  <p className="text-xs text-primary mt-2">
+                    Selected: {selectedFile.name} ({(selectedFile.size / 1024).toFixed(2)} KB)
+                  </p>
+                )}
+              </div>
+
               <button
                 type="submit"
                 disabled={loading || !sellerAddress}
@@ -198,63 +238,44 @@ export default function CompliancePanel() {
                   </div>
                 </div>
 
-                <div>
-                  <h4 className="text-sm font-medium text-text-secondary mb-3">Mandatory Certificates Held</h4>
-                  <div className="space-y-3">
-                    
-                    {/* Fire Safety */}
-                    <div className="flex items-center justify-between p-3 bg-[#1A221C] rounded-lg border border-border-dark">
-                      <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-red-500">fire_extinguisher</span>
-                        <span className="text-gray-300 font-medium">Fire Safety</span>
-                      </div>
-                      {sellerStatus.hasFire ? (
-                        <span className="material-symbols-outlined text-green-500">check_circle</span>
-                      ) : (
-                        <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded">Missing</span>
-                      )}
-                    </div>
+                <div className="grid grid-cols-1 gap-4">
+                  {CERT_TYPES.map((cert) => {
+                    const hasCert = sellerStatus.complianceDetails?.find(c => c.type === cert.label.replace(" ", ""))?.isValid;
+                    const docCid = sellerStatus.complianceDetails?.find(c => c.type === cert.label.replace(" ", ""))?.cid;
 
-                    {/* Building */}
-                    <div className="flex items-center justify-between p-3 bg-[#1A221C] rounded-lg border border-border-dark">
-                      <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-blue-500">domain</span>
-                        <span className="text-gray-300 font-medium">Building Safety</span>
-                      </div>
-                      {sellerStatus.hasBuilding ? (
-                        <span className="material-symbols-outlined text-green-500">check_circle</span>
-                      ) : (
-                        <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded">Missing</span>
-                      )}
-                    </div>
+                    return (
+                      <div key={cert.id} className="bg-[#1A221C] border border-border-dark rounded-xl p-4 flex flex-col gap-3 relative">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${hasCert ? cert.bg : 'bg-border-dark'} ${hasCert ? cert.color : 'text-gray-500'}`}>
+                            <span className="material-symbols-outlined">{cert.icon}</span>
+                          </div>
+                          <div>
+                            <p className="font-semibold text-white">{cert.label}</p>
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${hasCert ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
+                              {hasCert ? "Active" : "Missing / Expired"}
+                            </span>
+                          </div>
+                        </div>
 
-                    {/* Labor */}
-                    <div className="flex items-center justify-between p-3 bg-[#1A221C] rounded-lg border border-border-dark">
-                      <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-amber-500">engineering</span>
-                        <span className="text-gray-300 font-medium">Labor Standards</span>
+                        {docCid && (
+                          <div className="border-t border-border-dark pt-3 mt-1 flex justify-between items-center">
+                            <span className="text-xs text-text-secondary truncate w-2/3" title={docCid}>
+                              IPFS: {docCid.slice(0, 10)}...{docCid.slice(-6)}
+                            </span>
+                            <a 
+                              href={`https://gateway.pinata.cloud/ipfs/${docCid}`} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
+                            >
+                              View Doc
+                              <span className="material-symbols-outlined text-[14px]">open_in_new</span>
+                            </a>
+                          </div>
+                        )}
                       </div>
-                      {sellerStatus.hasLabor ? (
-                        <span className="material-symbols-outlined text-green-500">check_circle</span>
-                      ) : (
-                        <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded">Missing</span>
-                      )}
-                    </div>
-
-                    {/* Env */}
-                    <div className="flex items-center justify-between p-3 bg-[#1A221C] rounded-lg border border-border-dark">
-                      <div className="flex items-center gap-3">
-                        <span className="material-symbols-outlined text-green-500">eco</span>
-                        <span className="text-gray-300 font-medium">Environmental</span>
-                      </div>
-                      {sellerStatus.hasEnv ? (
-                        <span className="material-symbols-outlined text-green-500">check_circle</span>
-                      ) : (
-                        <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded">Missing</span>
-                      )}
-                    </div>
-
-                  </div>
+                    );
+                  })}
                 </div>
               </div>
             ) : (
@@ -263,7 +284,6 @@ export default function CompliancePanel() {
               </div>
             )}
           </div>
-
         </div>
       </div>
     </AppLayout>

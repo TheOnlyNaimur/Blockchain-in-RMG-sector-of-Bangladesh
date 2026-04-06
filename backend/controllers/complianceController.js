@@ -2,13 +2,14 @@ const { ethers } = require("ethers");
 const { getWriteContract, getReadContract } = require("../config/contract");
 const saveRecord = require("../utils/saveRecord");
 const { safeContractCall } = require("../utils/contractErrors");
+const Record = require("../models/Record");
 
 /**
  * POST /api/compliance/issue
  */
 async function issueCompliance(req, res, next) {
   try {
-    const { sellerAddress, certType, certDocHash, expiresAt } = req.body;
+    const { sellerAddress, certType, certDocHash, cid, expiresAt } = req.body;
     const privateKey = req.body.privateKey || process.env.COMPLIANCE_CHECKER_PRIVATE_KEY;
 
     if (!sellerAddress || certType === undefined || !certDocHash || !expiresAt || !privateKey) {
@@ -42,6 +43,7 @@ async function issueCompliance(req, res, next) {
       sellerAddress,
       certType: COMPLIANCE_TYPES[certType],
       certDocHash,
+      cid,
       expiresAt,
       issuedBy: receipt.from,
     });
@@ -119,10 +121,20 @@ async function getSellerComplianceStatus(req, res, next) {
 
     const COMPLIANCE_TYPES = ["FireSafety", "BuildingSafety", "LaborStandards", "Environmental"];
 
-    const details = COMPLIANCE_TYPES.map((type, i) => ({
-      type,
-      isValid: complianceStatus[i],
-    }));
+    const records = await Record.find({
+      recordType: "COMPLIANCE_ISSUED",
+      "rawData.sellerAddress": sellerAddress,
+    }).sort({ createdAt: -1 });
+
+    const details = COMPLIANCE_TYPES.map((type, i) => {
+      const latestRecord = records.find((r) => r.rawData.certType === type);
+      return {
+        type,
+        isValid: complianceStatus[i],
+        cid: latestRecord ? latestRecord.rawData.cid : null,
+        certDocHash: latestRecord ? latestRecord.rawData.certDocHash : null,
+      };
+    });
 
     res.json({
       success: true,

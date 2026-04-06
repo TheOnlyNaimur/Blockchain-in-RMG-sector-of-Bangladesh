@@ -159,15 +159,35 @@ The entire system strictly operates dynamically based on which active Wallet is 
 
 ---
 
-## 🔄 The Complete Production Flow
+## 🔄 The Complete Production Flow & Estimated Transaction Costs
 
+The system relies on an immutable on-chain backend. Because operations manipulate state to ensure cryptographic trust, each step incurs a standard EVM block-space execution cost (Gas). 
+
+> *Note: Gas estimations below are approximated from deterministic execution profiling. USD mappings (if calculated) scale dynamically based on the parent EVM Chain used (e.g. Polygon, Arbitrum, Ethereum L1) and current Gas/Gwei averages.*
+
+| Phase | Step | Actor / Role | Blockchain Event / Action | Est. Gas Used | EVM Native Cost Estimate |
+|:---|:---|:---|:---|---:|---:|
+| **1. Factory Enrollment** | KYC Submission | Seller/Factory | `SellerRegistered` (ECDSA signed profile mapping) | ~97,094 | Low |
+| | Registration Approval | Certifier | `SellerApproved` (Changes Factory state to *Approved*) | ~57,173 | Very Low |
+| **2. ESG Compliance** | Safety Verifications | Compliance Checker | `ComplianceIssued` (e.g., Fire, Building, Labor, Env.) | ~97,496 / cert | Low |
+| **3. Deal Initialization** | Purchase Order Mapping | Buyer/Brand | `OrderCreated` (Locks escrow, maps HS codes & terms) | ~190,487 | Medium |
+| | Anchoring Agreements | API Relayer | `AgreementGenerated` (Anchors IPFS metadata) | ~83,269 | Low |
+| **4. Manufacturing Base** | Production Batching | Seller/Factory | `BatchCreated` (Mints tracking id for raw garments) | ~138,068 | Medium |
+| **5. Auditing Phase** | Quality Control Check | Quality Checker | `BatchQualityUpdated` (Pass/Fail deterministic flag) | ~36,413 | Very Low |
+| **6. Export Logistics** | Freight Handshake | Factory / Forwarder | `ShipmentRequested` (Links batch to logistics carrier) | ~139,331 | Medium |
+| | Shipping Docs Upload | Freight Forwarder | `ExportDocUploaded` (IPFS hashes of BoL, Invoices) | ~66,494 / doc | Low |
+| **7. Final Clearance** | Export Validation | Export Customs | `CustomsCleared` (Verifies physical departure) | ~90,500 | Low |
+| | Import & Settlement | Import Customs | `CustomsCleared` / `PaymentReleased` (Escrow unlock)| ~150,000 | Medium |
+
+### Step-by-Step Flow Outline:
 1. **KYC Submissions**: The Seller executes KYC protocols via digital signature.
 2. **Platform Approval**: The Certifier validates the credentials and triggers `approve` on-chain.
-3. **Compliance Safety**: The Compliance Checker manually inputs safety certificates. The system natively blocks any factory without Building & Labor Safety certificates from doing business.
+3. **Compliance Safety**: The Compliance Checker manually inputs safety certificates via IPFS (Pinata). The system natively blocks any factory without Building, Labor, Fire, & Environmental safety certificates from doing business.
 4. **Purchase Order**: The International Buyer submits a Purchase Order mapping and locks their fiat/USDT valuation fully into the Smart Contract Escrow. 
 5. **Manufacturing**: Once escrow is locked, the Seller begins physical manufacturing and generates a cryptographic "Batch" linked to the Order.
 6. **QC Authority Review**: The third-party Quality Checker inspects the physical goods, and cross-references the dataset on-chain. They approve/reject.
-7. **Logistics Handshake**: The Seller passes the goods to the Freight Forwarder, who uploads the Bill of Lading hashes.
+7. **Logistics Handshake**: The Seller passes the goods to the Freight Forwarder, who uploads the Bill of Lading and Certificate of Origin hashes onto IPFS, binding the CID hashes onto the EVM ledger.
+8. **Public Ledger**: Any transaction, document hash, and receipt is immediately pushed to the **Public Transaction Ledger**, accessible to all users for complete transparency without needing to authenticate or connect a web3 wallet.
 8. **Export / Import Gateways**: Local Bangladesh Customs flags it as `Export cleared`, and Receiving Customs flags it as `Import Cleared`.
 9. **Execution & Release**: The Buyer reviews arrival status. When delivery is confirmed mutually on-chain, the frozen USDT escrow is atomically funneled into the Seller's address.
 10. **Traceability Finality**: Every single execution is logged natively to the `TraceabilityDashboard`. Users can click "Download Audit" to pull verifiable timestamps natively exported into a PDF array.

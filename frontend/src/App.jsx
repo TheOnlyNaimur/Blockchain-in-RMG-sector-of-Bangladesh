@@ -13,6 +13,7 @@ import CustomsClearance from "./pages/CustomsClearance";
 import Settings from "./pages/Settings";
 import CompliancePanel from "./pages/CompliancePanel";
 import TraceabilityDashboard from "./pages/TraceabilityDashboard";
+import TransactionLedger from "./pages/TransactionLedger";
 
 export default function App() {
   return (
@@ -118,6 +119,9 @@ export default function App() {
 
         {/* Settings — all roles */}
         <Route path="/settings" element={<Settings />} />
+
+        {/* Transaction Ledger — Completely Publicly Viewable */}
+        <Route path="/ledger" element={<TransactionLedger />} />
 
         {/* Catch-all: redirect to home */}
         <Route path="*" element={<Navigate to="/" replace />} />

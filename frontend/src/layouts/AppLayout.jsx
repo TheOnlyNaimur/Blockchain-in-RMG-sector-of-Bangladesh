@@ -53,6 +53,12 @@ const navItems = [
         roles: ['exportCustoms', 'importCustoms'],
     },
     {
+        path: '/ledger',
+        label: 'Transaction Ledger',
+        icon: 'receipt_long',
+        roles: ['seller', 'buyer', 'certifier', 'qualityChecker', 'freightForwarder', 'exportCustoms', 'importCustoms', 'complianceChecker'],
+    },
+    {
         path: '/settings',
         label: 'Settings',
         icon: 'settings',
