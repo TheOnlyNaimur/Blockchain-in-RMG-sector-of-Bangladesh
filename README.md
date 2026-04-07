@@ -1,295 +1,322 @@
-# Blockchain Based Unified Platform for RMG Sector in Bangladesh
+# Blockchain Unified Platform for the RMG Sector in Bangladesh
 
-## 🎯 Project Overview
+## Overview
 
-A comprehensive, blockchain-based supply chain mapping and tracking system exclusively designed for the Ready-Made Garment (RMG) sector in Bangladesh. The system enforces strict compliance, transparency, traceability, and accountability throughout the entire export supply chain. 
+This repository contains a full-stack blockchain workflow platform for the Ready-Made Garment (RMG) export ecosystem in Bangladesh.
 
-It accomplishes this via a **hybrid infrastructure**: smart contracts ensure immutable cryptographic proof-of-truth and automate financial escrows (USDT) on-chain, while a fast scalable MongoDB database handles large business documents, arrays, and PDF IPFS hashes off-chain.
+The platform combines:
 
-**Thesis Stage: Implementation** - The culmination of system design, actor networking, and distributed systems research.
+- Solidity smart contract state enforcement (roles, compliance gates, escrow, lifecycle status)
+- Express + MongoDB backend services (signature verification, record persistence, API orchestration)
+- React frontend dashboards for each role in the supply chain
 
----
+The system is designed around three goals:
 
-## 🏗️ Architecture
+- Trust: immutable state transitions and role-gated actions
+- Compliance: mandatory certification and export document checks
+- Traceability: full lifecycle auditability from registration to settlement
 
-### Hybrid Model: Blockchain + MongoDB
 
-- **Smart Contract (On-Chain)**: Stores deterministic state machines, authorization roles, IPFS dataset hashes, and mathematical proofs ensuring actors strictly follow RMG procedure.
-- **MongoDB (Off-Chain)**: Provides sub-second query fetching for raw, unhashed complex JSON business data, arrays, historical events, and UX-friendly analytics.
-- **Hashing Layer**: AES/SHA-256 generation ensures sensitive RMG business data stays completely off-chain, while still retaining cryptographic immutability (if data is altered, the hash breaks).
-- **Automated Financials**: Escrow-based token movement ensures factories get paid their USDT immediately upon successful import clearance by a validated customs address, effectively solving default payment risk.
-- **Cost Effectiveness**: Gas fee mitigation via local execution environments (`anvil`), perfect for enterprise resource planning (ERP) cost structures in Bangladesh.
+## Current Token Model
 
----
+The active escrow model is configured for PYUSD-style behavior (6 decimals).
 
-## 🛠️ Technology Stack
+Important compatibility note:
 
-### Smart Contracts & Web3
-- **Solidity ^0.8.20** - Immutable logic layer.
-- **Foundry / Forge** - Lightning-fast Rust-based testing and compiling suite.
-- **Anvil** - Local blockchain RPC node for deterministic environment testing.
+- Environment keys still use historical USDT naming:
+   - USDT_ADDRESS (backend/root)
+   - VITE_USDT_ADDRESS (frontend)
+- These keys now point to the configured PYUSD contract address used by the system.
 
-### Backend Network
-- **Node.js + Express.js** - Highly concurrent non-blocking API interface.
-- **Ethers.js v6** - Elliptic curve cryptography mapping and transaction broadcasting.
-- **Mongoose** - Document-oriented modeling.
 
-### Frontend Client
-- **React 18 & Vite** - High-speed hot modular replacement and rendering.
-- **TailwindCSS** - Responsive dark-mode styling.
-- **Wagmi / Viem** - Robust modern React wallet connectivity hooks.
-- **jsPDF / AutoTable** - Immutable transaction and official compliance certificate PDF exports.
+## Architecture
 
----
+### 1) On-chain Layer (Solidity)
 
-## 📁 System Structure
+Core contract: src/MyContract.sol
+
+Responsibilities:
+
+- Seller and buyer registration
+- Role-based authorization (certifier, QC, freight, customs, compliance checker)
+- Order creation and buyer acceptance with escrow transferFrom
+- Batch creation with compliance gate
+- Quality check, shipment request, document anchoring, customs clearances
+- Escrow release on delivery confirmation (or force-release by import customs)
+- TraceEvent emission for audit trail
+
+### 2) Backend Layer (Node.js/Express/MongoDB)
+
+Core server: backend/server.js
+
+Responsibilities:
+
+- API surface under /api
+- Signature verification for user payloads
+- Contract interaction via ethers v6
+- Record persistence for fast dashboard hydration and audit queries
+- Fallback status reconstruction when event log retrieval is constrained by RPC providers
+
+### 3) Frontend Layer (React/Vite)
+
+Core app: frontend/src/App.jsx
+
+Responsibilities:
+
+- Wallet-based role routing and guarded pages
+- Role dashboards: Seller, Buyer, Certifier, Compliance, QC, Freight, Customs
+- Traceability and ledger-style operational visibility
+- API-driven status synchronization with optimistic UI updates
+
+
+## Role Matrix
+
+- Certifier: approves/rejects seller onboarding
+- Compliance Checker: issues/revokes compliance certificates
+- Seller: creates orders, batches, shipment requests
+- Buyer: accepts orders, escrows funds, confirms delivery
+- Quality Checker: approves/rejects batches
+- Freight Forwarder: uploads shipment documents
+- Export Customs: export verification
+- Import Customs: import verification and emergency escrow release
+
+
+## End-to-End Lifecycle
+
+1. Seller registration
+2. Buyer registration
+3. Seller approval by certifier
+4. Compliance certificate issuance
+5. Order creation by seller
+6. Order acceptance by buyer with escrow lock
+7. Batch creation by seller
+8. QC approval/rejection
+9. Shipment request
+10. Export document uploads
+11. Export customs clearance
+12. Import customs clearance
+13. Buyer delivery confirmation (or force-release)
+14. Escrow release to seller
+
+
+## Repository Layout
 
 ```text
 .
-├── src/                       # Smart contracts (Solidity)
-│   ├── MyContract.sol         # Main RMG State Machine & Workflow Contract
-│   └── MockUSDT.sol           # ERC-20 implementation for automated escrow 
-├── script/                    # Auto-deployment workflows
-├── backend/                   
-│   ├── server.js              # Express HTTP Server
-│   ├── controllers/           # Specific Logic: Buyers, Sellers, QC, Audit, Compliance
-│   ├── routes/                # Modular internal API
-│   ├── e2e_test.js            # Automated End-To-End Blockchain Testing script
-│   └── package.json           
-├── frontend/                  
-│   ├── src/pages/             # Role-based dashboards (Rbac layout)
-│   ├── src/hooks/             # Ethers and Wagmi state synchronization
-│   ├── src/utils/             # Cryptography and PDF generations
-│   └── package.json           
-├── reset_and_test.sh          # Ultimate bash command to burn, deploy, and E2E test everything
-└── foundry.toml               # Native Forge configuration
+├── src/                         # Solidity contracts
+│   ├── MyContract.sol
+│   └── MockUSDT.sol             # optional local/mock token utilities
+├── script/
+│   └── Deploy.s.sol             # Foundry deployment script
+├── backend/
+│   ├── server.js
+│   ├── controllers/
+│   ├── routes/
+│   ├── models/
+│   ├── abi/
+│   └── tests/
+├── frontend/
+│   ├── src/pages/
+│   ├── src/hooks/
+│   ├── src/api/
+│   └── src/config/
+├── deploy.sh                    # build + deploy + env + ABI sync
+├── reset_and_test.sh            # local reset and scripted e2e flow
+├── foundry.toml
+└── remappings.txt
 ```
 
----
 
-## �� Quick Start & Installation Flow
+## Prerequisites
 
-### 1. Hard Prerequisites
-Ensure you have the following perfectly installed globally:
-- **Node.js (v18+)**
-- **Foundry** (`curl -L https://foundry.paradigm.xyz | bash`)
-- **Git**
-- **MetaMask** Browser Extension (Set to Developer Mode)
-- **MongoDB** (Locally installed `mongod` or via an Atlas connection string)
+- Node.js 18+
+- npm
+- Foundry (forge, cast, anvil)
+- MongoDB instance (local or Atlas)
+- MetaMask or compatible EVM wallet
 
-### 2. Initialization
-Clone the repository and install dependency webs:
+
+## Installation
 
 ```bash
 git clone https://github.com/TheOnlyNaimur/Blockchain-in-RMG-sector-of-Bangladesh.git
 cd Blockchain-in-RMG-sector-of-Bangladesh
 
-# Setup backend environment
-cd backend 
-npm install
-
-# Setup frontend environment
-cd ../frontend 
-npm install
+cd backend && npm install
+cd ../frontend && npm install
+cd ..
 ```
 
-### 3. Environment Variable Injection
-At the absolute root of your project, you'll need a `.env` file that handles all the private keys from Anvil's ephemeral state:
+
+## Environment Configuration
+
+Use .env.example as a template and configure three scopes:
+
+1. Root .env
+
+- PRIVATE_KEY
+- RPC_URL
+- USDT_ADDRESS
+- role addresses
+- CONTRACT_ADDRESS (auto-filled by deploy.sh)
+
+2. backend/.env
+
+- RPC_URL, CONTRACT_ADDRESS
+- MONGO_URI
+- BACKEND_PRIVATE_KEY
+- role private keys
+- pinning/IPFS credentials
+
+3. frontend/.env
+
+- VITE_CONTRACT_ADDRESS
+- VITE_USDT_ADDRESS
+- VITE_CHAIN_ID, VITE_RPC_URL
+- role addresses
+
+
+## Deploy Contracts and Sync App Config
+
+Recommended path:
 
 ```bash
-# In the project root, create `.env`
-touch .env
-```
-Populate the file with the `anvil` generated private keys. Ensure that the deployment addresses strictly match the roles inside `./backend/.env` and `./frontend/src/config/contracts.js`.
-
----
-
-## 🚢 Service Execution
-
-For the entire system to sync, you need essentially four terminal instances running concurrently.
-
-**Terminal 1: Start the Local Node**
-```bash
-anvil
+./deploy.sh
 ```
 
-**Terminal 2: Broadcast the Smart Contracts**
-```bash
-forge compile
-forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
-```
-*(Copy the deployed `MyContract` and `MockUSDT` addresses generated in the terminal and assign them into your frontend configs).*
+The script performs:
 
-**Terminal 3: Ignite Database & Backend Routing**
+- forge build
+- forge script deployment
+- contract address extraction from Foundry broadcast
+- root/backend/frontend env updates
+- backend ABI refresh (backend/abi/MyContract.json)
+
+
+## Run the Platform
+
+### Backend
+
 ```bash
 cd backend
 npm run dev
 ```
 
-**Terminal 4: Spin-Up the User Interface**
+### Frontend
+
 ```bash
 cd frontend
 npm run dev
 ```
 
-### 5. Metamask Wallet Tethering
-1. Open MetaMask. Go to Settings -> Networks -> Add Network Manually.
-2. Network Name: **Anvil Local**
-3. New RPC URL: `http://127.0.0.1:8545`
-4. Chain ID: `31337`
-5. Currency Symbol: `ETH`
-6. Once saved, import Account #1 and Account #2 from your `anvil` terminal output via their raw Private Keys to test the Buyer and Seller transactions.
-
----
-
-## 🎭 Roles & Permissions (RBAC)
-
-The entire system strictly operates dynamically based on which active Wallet is connected. Random addresses have zero authorization to manipulate state.
-
-| Role                  | Workflow Capabilities                                                     |
-| --------------------- | ------------------------------------------------------------------------- |
-| **Certifier**         | Approves/Rejects initial Factory Registrations & Tax IDs.                 |
-| **Compliance Checker**| Evaluates & issues mandatory certificates (Fire, Labor, Environment).      |
-| **Seller/Factory**    | Submits KYC, creates RMG Batches, requests container shipments.           |
-| **Buyer/Brand**       | Deposits USDT into escrow, dictates Batch requirements, confirms delivery.|
-| **Quality Checker**   | Audits physical garments and digitally signs `QC_PASSED` or `QC_FAILED`.  |
-| **Freight Forwarder** | Uploads IPFS transit documents & anchors them onto immutable ledger.      |
-| **Export Customs**    | Evaluates out-bound freight and issues blockchain export clearance.       |
-| **Import Customs**    | Evaluates in-bound freight, triggers final clearance & releases Escrow.   |
-
----
-
-## 🔄 The Complete Production Flow & Estimated Transaction Costs
-
-The system relies on an immutable on-chain backend. Because operations manipulate state to ensure cryptographic trust, each step incurs a standard EVM block-space execution cost (Gas). 
-
-> *Note: Gas estimations below are approximated from deterministic execution profiling. USD mappings (if calculated) scale dynamically based on the parent EVM Chain used (e.g. Polygon, Arbitrum, Ethereum L1) and current Gas/Gwei averages.*
-
-| Phase | Step | Actor / Role | Blockchain Event / Action | Est. Gas Used | EVM Native Cost Estimate |
-|:---|:---|:---|:---|---:|---:|
-| **1. Factory Enrollment** | KYC Submission | Seller/Factory | `SellerRegistered` (ECDSA signed profile mapping) | ~97,094 | Low |
-| | Registration Approval | Certifier | `SellerApproved` (Changes Factory state to *Approved*) | ~57,173 | Very Low |
-| **2. ESG Compliance** | Safety Verifications | Compliance Checker | `ComplianceIssued` (e.g., Fire, Building, Labor, Env.) | ~97,496 / cert | Low |
-| **3. Deal Initialization** | Purchase Order Mapping | Buyer/Brand | `OrderCreated` (Locks escrow, maps HS codes & terms) | ~190,487 | Medium |
-| | Anchoring Agreements | API Relayer | `AgreementGenerated` (Anchors IPFS metadata) | ~83,269 | Low |
-| **4. Manufacturing Base** | Production Batching | Seller/Factory | `BatchCreated` (Mints tracking id for raw garments) | ~138,068 | Medium |
-| **5. Auditing Phase** | Quality Control Check | Quality Checker | `BatchQualityUpdated` (Pass/Fail deterministic flag) | ~36,413 | Very Low |
-| **6. Export Logistics** | Freight Handshake | Factory / Forwarder | `ShipmentRequested` (Links batch to logistics carrier) | ~139,331 | Medium |
-| | Shipping Docs Upload | Freight Forwarder | `ExportDocUploaded` (IPFS hashes of BoL, Invoices) | ~66,494 / doc | Low |
-| **7. Final Clearance** | Export Validation | Export Customs | `CustomsCleared` (Verifies physical departure) | ~90,500 | Low |
-| | Import & Settlement | Import Customs | `CustomsCleared` / `PaymentReleased` (Escrow unlock)| ~150,000 | Medium |
-
-### Step-by-Step Flow Outline:
-1. **KYC Submissions**: The Seller executes KYC protocols via digital signature.
-2. **Platform Approval**: The Certifier validates the credentials and triggers `approve` on-chain.
-3. **Compliance Safety**: The Compliance Checker manually inputs safety certificates via IPFS (Pinata). The system natively blocks any factory without Building, Labor, Fire, & Environmental safety certificates from doing business.
-4. **Purchase Order**: The International Buyer submits a Purchase Order mapping and locks their fiat/USDT valuation fully into the Smart Contract Escrow. 
-5. **Manufacturing**: Once escrow is locked, the Seller begins physical manufacturing and generates a cryptographic "Batch" linked to the Order.
-6. **QC Authority Review**: The third-party Quality Checker inspects the physical goods, and cross-references the dataset on-chain. They approve/reject.
-7. **Logistics Handshake**: The Seller passes the goods to the Freight Forwarder, who uploads the Bill of Lading and Certificate of Origin hashes onto IPFS, binding the CID hashes onto the EVM ledger.
-8. **Public Ledger**: Any transaction, document hash, and receipt is immediately pushed to the **Public Transaction Ledger**, accessible to all users for complete transparency without needing to authenticate or connect a web3 wallet.
-8. **Export / Import Gateways**: Local Bangladesh Customs flags it as `Export cleared`, and Receiving Customs flags it as `Import Cleared`.
-9. **Execution & Release**: The Buyer reviews arrival status. When delivery is confirmed mutually on-chain, the frozen USDT escrow is atomically funneled into the Seller's address.
-10. **Traceability Finality**: Every single execution is logged natively to the `TraceabilityDashboard`. Users can click "Download Audit" to pull verifiable timestamps natively exported into a PDF array.
-
----
-
-## 🤖 Automated End-To-End Testing
-
-Don't want to click through 15 wallets natively? We wrote a script that literally validates, compiles, and simulates the entire cycle via Node cryptography. 
+### Optional local chain (Anvil)
 
 ```bash
-# In the root, give execution permissions to the script
-chmod +x reset_and_test.sh
+anvil
+```
 
-# Run the 14-Phase Autonomous Pipeline
+
+## Key API Domains
+
+- /api/sellers
+- /api/buyers
+- /api/orders
+- /api/batches
+- /api/shipments
+- /api/compliance
+- /api/records
+- /api/audit
+
+
+## Data Integrity Model
+
+The backend stores normalized event records in MongoDB using recordType, txHash, block metadata, rawData, and dataHash.
+
+This supports:
+
+- Efficient dashboard reads
+- Historical audit trails
+- Integrity checks against on-chain outcomes
+
+
+## Operational Notes
+
+### RPC log range limits
+
+Some public RPC providers reject very wide eth_getLogs ranges.
+
+The backend includes:
+
+- bounded event query windows
+- DB-backed fallback reconstruction for order/batch statuses
+
+This is required for stable dashboard state in production-like public RPC conditions.
+
+### Status hydration
+
+Order status in the API is reconstructed from both live events and persisted records with cross-linking:
+
+- batchId -> orderId
+- shipId -> orderId
+
+This ensures buyer/seller/QC/freight/customs dashboards remain consistent even during RPC event-query failures.
+
+
+## Testing
+
+### Smart contract build
+
+```bash
+forge build
+```
+
+### Backend tests
+
+```bash
+cd backend
+npm test
+```
+
+### Local scripted flow
+
+```bash
+chmod +x reset_and_test.sh
 ./reset_and_test.sh
 ```
-This drops the MongoDB test-db, resets the Anvil node, dynamically reads all generated environment keys, compiles and deploys the contracts via forge, hooks into the API interfaces, tests JSON payloads, simulates full supply chain token transfers, and forces the E2E output locally!
 
-### Example E2E Pipeline Output
-When the script finishes executing, you will see a unified terminal pipeline confirming the lifecycle blocks have executed accurately on your local node:
 
-```text
-═══════════════════════════════════════════════════════════
-  RMG BLOCKCHAIN — END-TO-END LIFECYCLE TEST v2
-═══════════════════════════════════════════════════════════
+## Troubleshooting
 
-── Phase 1: Seller Registration ──
-✅ Register Seller: {"success":true,"message":"Seller registered successfully"}
+### forge-std import not found in editor
 
-── Phase 2: Buyer Registration ──
-✅ Register Buyer: {"success":true,"message":"Buyer registered successfully"}
+If script/Deploy.s.sol shows:
 
-── Phase 3: Certifier Approval ──
-✅ Approve Seller: {"success":true,"txHash":"0x..."}
+Source forge-std/Script.sol not found
 
-── Phase 4: Compliance Issuance (4 certificates) ──
-✅ Issue Fire Safety: {"success":true,...}
-✅ Issue Building Safety: {"success":true,...}
-   ✓ Compliance status: ["Fire Safety","Building Safety","Labor Standards","Environmental"]
+Ensure:
 
-── Phase 5: Seller Creates Order ──
-✅ Create Order: {"success":true,"orderId":1}
-   Order ID: 1
+- foundry.toml includes forge-std remapping
+- remappings.txt exists with forge-std path
+- lib/forge-std is present
+- Reload VS Code window after remapping updates
 
-── Phase 6: Buyer Accepts Order ──
-   Approving MockUSDT...
-✅ Buyer Accept: {"success":true,...}
+### Dashboard status appears stale
 
-── Phase 7: Seller Creates Batch ──
-✅ Create Batch: {"success":true,"batchId":1}
-   Batch ID: 1
+- Confirm backend is restarted after controller changes
+- Verify /api/orders and /api/batches/events return success payloads
+- Check RPC endpoint health and block-range restrictions
 
-── Phase 8: Quality Check ──
-✅ QC Approve: {"success":true,...}
 
-── Phase 9: Seller Requests Shipment ──
-✅ Request Shipment: {"success":true,"shipId":1}
-   Ship ID: 1
+## Security Notes
 
-── Phase 10: Freight Forwarder Uploads 4 Export Docs ──
-✅ Upload CommercialInvoice: tx 0x...
-✅ Upload PackingList: tx 0x...
-✅ Upload BillOfLading: tx 0x...
-✅ Upload CertificateOfOrigin: tx 0x...
-   ✓ Export docs complete: true
+- Role-restricted contract calls enforced on-chain
+- User payload signature verification in backend
+- Custom errors mapped to user-readable API responses
+- Data hash persistence for tamper detection
 
-── Phase 11: Export Customs Clearance ──
-✅ Export Verify: {"success":true,...}
 
-── Phase 12: Import Customs Clearance ──
-✅ Import Verify: {"success":true,...}
+## Academic Scope
 
-── Phase 13: Buyer Confirms Delivery → Escrow Released ──
-✅ Confirm Delivery: {"success":true,"message":"Delivery confirmed and escrow released"}
-
-═══════════════════════════════════════════════════════════
-  FINAL STATE CHECK
-═══════════════════════════════════════════════════════════
-📦 Orders: 1
-   Order #1 — Status: Delivered | Delivered: true
-🏭 Batches: 1 created, 1 QC'd
-🚢 Shipments: 1
-💰 Escrow remaining: 0 wei
-📋 On-chain order: status=3, delivered=true, escrowed=0
-📝 DB Records: 15
-👤 Sellers: 1
-
-═══════════════════════════════════════════════════════════
-  🎉 ALL PHASES PASSED — FULL LIFECYCLE COMPLETE!
-═══════════════════════════════════════════════════════════
-```
-
----
-
-## 🔐 Cryptography & Security
-- **Strict Method Modifiers**: Smart contract arrays leverage `onlyRole` execution stopping state fragmentation.
-- **Impeccable Signatures**: Utilizing `ECDSA` and Ethers v6 signature verifications prevents man-in-the-middle attacks. The database explicitly compares `signer` addresses.
-- **Re-Entrancy Prevention**: Nonce parameters are utilized on token execution transfers.
-
----
-
-## Academic Integrity
-This is strictly a prototype mapped for academic research within the purview of the RMG (Ready Made Garment) export framework of Bangladesh. It requires rigorous third-party mainnet Solidity auditing mechanisms before massive deployment in enterprise ecosystems.
+This project is a research/prototype implementation for the Bangladesh RMG trade domain.
+It is not a final audited production system and should undergo full smart contract and infrastructure security review before real-world deployment.
 
