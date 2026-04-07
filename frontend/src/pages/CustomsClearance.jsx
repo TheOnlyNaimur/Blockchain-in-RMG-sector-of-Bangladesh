@@ -3,7 +3,12 @@ import AppLayout from "../layouts/AppLayout";
 import RoleGuard from "../components/RoleGuard";
 import StatusBadge from "../components/ui/StatusBadge";
 import StatCard from "../components/ui/StatCard";
-import { useExportVerify, useImportVerify, useShipmentEvents } from "../hooks";
+import {
+  useExportVerify,
+  useImportVerify,
+  useShipmentDocuments,
+  useShipmentEvents,
+} from "../hooks";
 
 export default function CustomsClearance() {
   const { data: allShipments = [], refetch } = useShipmentEvents();
@@ -27,8 +32,16 @@ export default function CustomsClearance() {
     loading: importLoading,
     error: importError,
   } = useImportVerify();
+  const {
+    execute: fetchShipmentDocuments,
+    loading: docsLoading,
+    error: docsError,
+  } = useShipmentDocuments();
   const [successMessage, setSuccessMessage] = useState("");
   const [processingId, setProcessingId] = useState(null);
+  const [showDocsModal, setShowDocsModal] = useState(false);
+  const [selectedDocsShipment, setSelectedDocsShipment] = useState(null);
+  const [shipmentDocs, setShipmentDocs] = useState(null);
 
   useEffect(() => {
     if (allShipments?.length > 0) {
@@ -109,6 +122,30 @@ export default function CustomsClearance() {
       console.error("Import clearance failed:", err);
       setProcessingId(null);
     }
+  };
+
+  const handleOpenDocsVerification = async (shipment) => {
+    const shipmentId = shipment?.id || shipment?.shipId;
+    if (!shipmentId) return;
+
+    setSelectedDocsShipment(shipment);
+    setShowDocsModal(true);
+    setShipmentDocs(null);
+
+    try {
+      const docs = await fetchShipmentDocuments({ shipmentId: String(shipmentId) });
+      setShipmentDocs(docs);
+    } catch (err) {
+      console.error("Failed to fetch shipment documents:", err);
+    }
+  };
+
+  const formatHash = (hash) => {
+    if (!hash) return "Not uploaded";
+    if (hash === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+      return "Not uploaded";
+    }
+    return hash;
   };
 
   const handleForceRelease = async (item) => {
@@ -197,7 +234,7 @@ export default function CustomsClearance() {
           />
           <StatCard
             label="Payments Triggered"
-            value={`${(exportQueue || []).filter(s => s.amount && (s.shipStatus === "Import Cleared" || s.shipStatus === "Delivered & Paid")).reduce((acc, curr) => acc + Number(curr.amount), 0)} USDT`}
+            value={`${(exportQueue || []).filter(s => s.amount && (s.shipStatus === "Import Cleared" || s.shipStatus === "Delivered & Paid")).reduce((acc, curr) => acc + Number(curr.amount), 0)} PYUSD`}
             change="Released"
             icon="payments"
           />
@@ -301,36 +338,45 @@ export default function CustomsClearance() {
                           </div>
                         </td>
                         <td className="p-4 text-right">
-                          {item.shipStatus === "Export Cleared" ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-400">
-                              <span className="material-symbols-outlined text-[14px]">verified</span>
-                              ✓ Export Cleared
-                            </span>
-                          ) : (
+                          <div className="flex justify-end gap-2">
                             <button
-                              onClick={() =>
-                                handleExportClearance(
-                                  item.id,
-                                  `EXP-LICENSE-${item.id}`,
-                                )
-                              }
-                              disabled={
-                                exportLoading || processingId === item.id
-                              }
-                              className="bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-400 disabled:opacity-50 flex items-center gap-1"
+                              onClick={() => handleOpenDocsVerification(item)}
+                              className="bg-surface-darker text-white px-3 py-1.5 rounded-lg text-xs font-semibold border border-border-dark hover:bg-border-dark transition-colors flex items-center gap-1"
                             >
-                              {processingId === item.id ? (
-                                <span className="material-symbols-outlined text-xs animate-spin">
-                                  cached
-                                </span>
-                              ) : (
-                                <span className="material-symbols-outlined text-[14px]">flight_takeoff</span>
-                              )}
-                              {processingId === item.id
-                                ? "Processing..."
-                                : "Clear Export"}
+                              <span className="material-symbols-outlined text-[14px]">fact_check</span>
+                              Verify Docs
                             </button>
-                          )}
+                            {item.shipStatus === "Export Cleared" ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-400 px-2">
+                                <span className="material-symbols-outlined text-[14px]">verified</span>
+                                Export Cleared
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() =>
+                                  handleExportClearance(
+                                    item.id,
+                                    `EXP-LICENSE-${item.id}`,
+                                  )
+                                }
+                                disabled={
+                                  exportLoading || processingId === item.id
+                                }
+                                className="bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-400 disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {processingId === item.id ? (
+                                  <span className="material-symbols-outlined text-xs animate-spin">
+                                    cached
+                                  </span>
+                                ) : (
+                                  <span className="material-symbols-outlined text-[14px]">flight_takeoff</span>
+                                )}
+                                {processingId === item.id
+                                  ? "Processing..."
+                                  : "Clear Export"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -385,34 +431,43 @@ export default function CustomsClearance() {
                           Escrow Ready
                         </td>
                         <td className="p-4 text-right">
-                          {item.shipStatus === "Import Cleared" ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-400">
-                              <span className="material-symbols-outlined text-[14px]">verified</span>
-                              ✓ Import Cleared
-                            </span>
-                          ) : (
+                          <div className="flex justify-end gap-2">
                             <button
-                              onClick={() =>
-                                handleImportClearance(
-                                  item.id || item.shipId,
-                                  `IMP-LICENSE-${item.id || item.shipId}`,
-                                )
-                              }
-                              disabled={importLoading || processingId === item.id}
-                              className="bg-purple-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-purple-400 disabled:opacity-50 flex items-center gap-1"
+                              onClick={() => handleOpenDocsVerification(item)}
+                              className="bg-surface-darker text-white px-3 py-1.5 rounded-lg text-xs font-semibold border border-border-dark hover:bg-border-dark transition-colors flex items-center gap-1"
                             >
-                              {processingId === item.id ? (
-                                <span className="material-symbols-outlined text-xs animate-spin">
-                                  cached
-                                </span>
-                              ) : (
-                                <span className="material-symbols-outlined text-[14px]">flight_land</span>
-                              )}
-                              {processingId === item.id
-                                ? "Processing..."
-                                : "Clear Import"}
+                              <span className="material-symbols-outlined text-[14px]">fact_check</span>
+                              Verify Docs
                             </button>
-                          )}
+                            {item.shipStatus === "Import Cleared" ? (
+                              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-purple-400 px-2">
+                                <span className="material-symbols-outlined text-[14px]">verified</span>
+                                Import Cleared
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() =>
+                                  handleImportClearance(
+                                    item.id || item.shipId,
+                                    `IMP-LICENSE-${item.id || item.shipId}`,
+                                  )
+                                }
+                                disabled={importLoading || processingId === item.id}
+                                className="bg-purple-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-purple-400 disabled:opacity-50 flex items-center gap-1"
+                              >
+                                {processingId === item.id ? (
+                                  <span className="material-symbols-outlined text-xs animate-spin">
+                                    cached
+                                  </span>
+                                ) : (
+                                  <span className="material-symbols-outlined text-[14px]">flight_land</span>
+                                )}
+                                {processingId === item.id
+                                  ? "Processing..."
+                                  : "Clear Import"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -541,6 +596,87 @@ export default function CustomsClearance() {
         </div>
 
         {/* ── PROCESS EXPORT MODAL ── */}
+        {showDocsModal && selectedDocsShipment && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setShowDocsModal(false)}
+          >
+            <div
+              className="w-full max-w-2xl bg-surface-dark border border-border-dark rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 border-b border-border-dark bg-surface-darker flex justify-between items-start shrink-0">
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <span className="material-symbols-outlined text-primary">
+                      fact_check
+                    </span>
+                    Customs Document Verification
+                  </h3>
+                  <p className="text-text-secondary text-sm mt-1">
+                    Shipment #{selectedDocsShipment.id || selectedDocsShipment.shipId} document hashes from freight forwarder
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowDocsModal(false)}
+                  className="text-text-secondary hover:text-white transition-colors"
+                >
+                  <span className="material-symbols-outlined">close</span>
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto">
+                {docsLoading && (
+                  <div className="text-sm text-text-secondary flex items-center gap-2">
+                    <span className="material-symbols-outlined animate-spin text-[18px]">cached</span>
+                    Fetching on-chain document hashes...
+                  </div>
+                )}
+
+                {docsError && (
+                  <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+                    Failed to load document hashes: {docsError.message}
+                  </div>
+                )}
+
+                {shipmentDocs && (
+                  <>
+                    <div className="mb-5 rounded-lg border border-border-dark bg-background-dark p-4 flex flex-wrap items-center gap-3">
+                      <span className="text-xs text-text-secondary uppercase tracking-wider">Completion</span>
+                      <span className="text-sm font-semibold text-white">
+                        {shipmentDocs.uploadedCount}/{shipmentDocs.requiredCount} uploaded
+                      </span>
+                      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${shipmentDocs.readyForExportClearance ? "bg-primary/20 text-primary" : "bg-yellow-500/20 text-yellow-400"}`}>
+                        {shipmentDocs.readyForExportClearance ? "Ready For Clearance" : "Incomplete"}
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {shipmentDocs.documents.map((doc) => (
+                        <div key={doc.key} className="rounded-lg border border-border-dark bg-background-dark p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-white font-semibold text-sm">{doc.label}</h4>
+                            <span className={`text-xs font-medium px-2 py-1 rounded-full ${doc.uploaded ? "bg-primary/20 text-primary" : "bg-red-500/20 text-red-400"}`}>
+                              {doc.uploaded ? "Uploaded" : "Missing"}
+                            </span>
+                          </div>
+                          <p className="font-mono text-xs text-slate-300 break-all">
+                            {formatHash(doc.hash)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <p className="text-xs text-text-secondary mt-4">
+                      These are hashed records only. Actual files remain off-chain and are not exposed in this panel.
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {showProcess && selectedExport && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
@@ -710,7 +846,7 @@ export default function CustomsClearance() {
                     {selectedExport.amount || "See Escrow"}
                   </p>
                   <p className="text-text-secondary text-sm mt-1">
-                    USDT to {selectedExport.seller ? `${selectedExport.seller.slice(0, 8)}...` : "Unknown Seller"}
+                    PYUSD to {selectedExport.seller ? `${selectedExport.seller.slice(0, 8)}...` : "Unknown Seller"}
                   </p>
                 </div>
 
@@ -737,7 +873,7 @@ export default function CustomsClearance() {
                     warning
                   </span>
                   <p className="text-xs text-yellow-500/80">
-                    This action is irreversible. The escrowed USDT will be
+                    This action is irreversible. The escrowed PYUSD will be
                     released to the seller's wallet immediately.
                   </p>
                 </div>
@@ -986,7 +1122,7 @@ export default function CustomsClearance() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <label className="text-sm font-medium text-white">
-                    Declared Value (USDT)
+                    Declared Value (PYUSD)
                   </label>
                   <input
                     className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3 placeholder-[#5c7263]"

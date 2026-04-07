@@ -46,7 +46,7 @@ export const generateOrderPDF = (order) => {
     ["Order ID", order.id || "N/A"],
     ["Seller", order.seller || "N/A"],
     ["Buyer", order.buyer || "N/A"],
-    ["Amount", `${order.amount} USDT`],
+    ["Amount", `${order.amount} PYUSD`],
     ["Status", order.status || "N/A"],
     ["Details", order.details || "N/A"],
   ];

@@ -15,7 +15,7 @@ export default function TraceabilityDashboard() {
       case "BATCH_CREATED": return { title: "Production Batch Created", icon: "inventory_2", color: "bg-indigo-500" };
       case "QC_APPROVED": return { title: "Quality Check Approved", icon: "fact_check", color: "bg-emerald-500" };
       case "COMPLIANCE_ISSUED": return { title: "Compliance Verified", icon: "verified_user", color: "bg-green-500" };
-      case "ESCROW_DEPOSITED": return { title: "USDT Escrow Locked", icon: "lock", color: "bg-indigo-500" };
+      case "ESCROW_DEPOSITED": return { title: "PYUSD Escrow Locked", icon: "lock", color: "bg-indigo-500" };
       case "DOCS_UPLOADED": return { title: "Export Documents Anchored", icon: "description", color: "bg-purple-500" };
       case "EXPORT_CLEARED": return { title: "Export Customs Cleared", icon: "flight_takeoff", color: "bg-teal-500" };
       case "IMPORT_CLEARED": return { title: "Import Customs Cleared", icon: "flight_land", color: "bg-orange-500" };

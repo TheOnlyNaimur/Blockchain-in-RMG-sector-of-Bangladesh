@@ -8,6 +8,7 @@ const recordRoutes = require("./record.routes");
 const ipfsRoutes = require("./ipfs.routes");
 const complianceRoutes = require("./compliance.routes");
 const auditRoutes = require("./audit.routes");
+const { faucetUsdt } = require("../controllers/debugController");
 
 const router = express.Router();
 
@@ -20,5 +21,6 @@ router.use("/records", recordRoutes);
 router.use("/ipfs", ipfsRoutes);
 router.use("/compliance", complianceRoutes);
 router.use("/audit", auditRoutes);
+router.post("/debug/usdt-faucet", faucetUsdt);
 
 module.exports = router;

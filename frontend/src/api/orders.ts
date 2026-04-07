@@ -16,6 +16,7 @@ export interface OrderCreateRequest {
 
 export interface OrderAcceptData {
   orderId: string;
+  amount: string;
 }
 
 export interface OrderAcceptRequest {

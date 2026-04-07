@@ -47,7 +47,7 @@ if [ ! -f "$BROADCAST_FILE" ]; then
   exit 1
 fi
 
-USDT_ADDRESS=$(python3 -c "
+CONTRACT_ADDRESS=$(python3 -c "
 import json
 with open('$BROADCAST_FILE') as f:
     data = json.load(f)
@@ -55,15 +55,6 @@ creates = [tx for tx in data['transactions'] if tx['transactionType'] == 'CREATE
 print(creates[0]['contractAddress'])
 ")
 
-CONTRACT_ADDRESS=$(python3 -c "
-import json
-with open('$BROADCAST_FILE') as f:
-    data = json.load(f)
-creates = [tx for tx in data['transactions'] if tx['transactionType'] == 'CREATE']
-print(creates[1]['contractAddress'])
-")
-
-echo "   MockUSDT     : $USDT_ADDRESS"
 echo "   MyContract   : $CONTRACT_ADDRESS"
 
 echo ""
@@ -82,7 +73,6 @@ update_env() {
 }
 
 update_env "$PROJECT_DIR/.env" "CONTRACT_ADDRESS" "$CONTRACT_ADDRESS"
-update_env "$PROJECT_DIR/.env" "USDT_ADDRESS" "$USDT_ADDRESS"
 echo "   ✅ .env (root)"
 
 update_env "$PROJECT_DIR/backend/.env" "CONTRACT_ADDRESS" "$CONTRACT_ADDRESS"

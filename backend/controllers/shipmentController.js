@@ -79,7 +79,7 @@ async function requestShipment(req, res, next) {
     await saveRecord("SHIPMENT_REQUESTED", receipt, {
       shipId,
       batchId,
-      orderId: parsedOrderId || batchId,
+      orderId: parsedOrderId || null,
       freightForwarderAddress,
       sellerAddress: userAddress,
       signature,
@@ -285,6 +285,76 @@ async function getShipment(req, res, next) {
 }
 
 /**
+ * GET /api/shipments/:shipId/docs
+ */
+async function getShipmentDocuments(req, res, next) {
+  try {
+    const { shipId } = req.params;
+    const parsedShipId = Number(shipId);
+
+    if (!Number.isInteger(parsedShipId) || parsedShipId <= 0) {
+      return res.status(400).json({ success: false, error: "shipId must be a positive integer" });
+    }
+
+    const contract = getReadContract();
+
+    const [shipment, docs] = await Promise.all([
+      contract.shipments(BigInt(parsedShipId)),
+      contract.exportDocs(BigInt(parsedShipId)),
+    ]);
+
+    const onChainShipId = Number(shipment.shipId);
+    if (onChainShipId !== parsedShipId) {
+      return res.status(404).json({ success: false, error: `Shipment #${parsedShipId} not found` });
+    }
+
+    const uploadedCount = typeof docs.uploadedCount === "bigint"
+      ? Number(docs.uploadedCount)
+      : Number(docs.uploadedCount || 0);
+
+    const documents = [
+      {
+        key: "commercialInvoice",
+        label: "Commercial Invoice",
+        hash: docs.commercialInvoiceHash,
+        uploaded: docs.commercialInvoiceHash !== ethers.ZeroHash,
+      },
+      {
+        key: "packingList",
+        label: "Packing List",
+        hash: docs.packingListHash,
+        uploaded: docs.packingListHash !== ethers.ZeroHash,
+      },
+      {
+        key: "billOfLading",
+        label: "Bill of Lading",
+        hash: docs.billOfLadingHash,
+        uploaded: docs.billOfLadingHash !== ethers.ZeroHash,
+      },
+      {
+        key: "certificateOfOrigin",
+        label: "Certificate of Origin",
+        hash: docs.certificateOfOriginHash,
+        uploaded: docs.certificateOfOriginHash !== ethers.ZeroHash,
+      },
+    ];
+
+    res.json({
+      success: true,
+      data: {
+        shipId: parsedShipId.toString(),
+        uploadedCount,
+        requiredCount: 4,
+        readyForExportClearance: uploadedCount >= 4,
+        documents,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * GET /api/shipments/events
  */
 async function getShipmentEvents(req, res, next) {
@@ -367,5 +437,6 @@ module.exports = {
   exportVerify,
   importVerify,
   getShipment,
+  getShipmentDocuments,
   getShipmentEvents,
 };

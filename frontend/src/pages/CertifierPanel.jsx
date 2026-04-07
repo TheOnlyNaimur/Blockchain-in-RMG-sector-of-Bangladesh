@@ -15,6 +15,7 @@ export default function CertifierPanel() {
   const { execute: approveSeller, loading, error } = useSellerApproval();
   const [successMessage, setSuccessMessage] = useState("");
   const [approvalProcessing, setApprovalProcessing] = useState(null);
+  const [certificateFile, setCertificateFile] = useState(null);
 
   useEffect(() => {
     if (allSellers?.length > 0) {
@@ -30,10 +31,20 @@ export default function CertifierPanel() {
   }, [allSellers]);
 
   const handleApprove = async (sellerAddress) => {
+    if (!certificateFile) {
+      setSuccessMessage("");
+      alert("Upload a certificate file before approving the seller.");
+      return;
+    }
+
     setApprovalProcessing(sellerAddress);
     setSuccessMessage("");
     try {
-      const result = await approveSeller({ sellerAddress, assign: 1 });
+      const result = await approveSeller({
+        sellerAddress,
+        assign: 1,
+        certificateFile,
+      });
       setSuccessMessage(`Seller approved! Transaction: ${result.txHash}`);
       // Move from pending to approved
       const approved = pendingRows.find((r) => r.address === sellerAddress);
@@ -46,11 +57,16 @@ export default function CertifierPanel() {
           {
             ...approved,
             date: new Date().toLocaleDateString(),
-            certHash: `0x${Math.random().toString(16).substr(2, 8)}...${Math.random().toString(16).substr(2, 8)}`,
+            certHash: result.certDocHash || "N/A",
+            certIpfsCid: result.certIpfsCid || null,
+            certIpfsUrl: result.certIpfsUrl || null,
+            certificateFileName: certificateFile.name,
             gasUsed: "0.0040 ETH",
           },
         ]);
       }
+      setCertificateFile(null);
+      refetchSellers();
       setTimeout(() => {
         setSuccessMessage("");
         setApprovalProcessing(null);
@@ -244,21 +260,15 @@ export default function CertifierPanel() {
                               </span>
                             </button>
                             <button
-                              onClick={() => handleApprove(row.address)}
+                              onClick={() => setSelectedPending(row)}
                               className="text-text-secondary hover:text-primary p-1 rounded hover:bg-primary/10 transition-colors disabled:opacity-50 flex items-center gap-1"
                               disabled={
                                 loading || approvalProcessing === row.address
                               }
                             >
-                              {approvalProcessing === row.address ? (
-                                <span className="material-symbols-outlined text-lg animate-spin">
-                                  cached
-                                </span>
-                              ) : (
-                                <span className="material-symbols-outlined text-xl">
-                                  check
-                                </span>
-                              )}
+                              <span className="material-symbols-outlined text-xl">
+                                check
+                              </span>
                             </button>
                           </div>
                         </td>
@@ -348,12 +358,28 @@ export default function CertifierPanel() {
                                 download
                               </span>
                             </button>
-                            <button className="text-text-secondary hover:text-white text-sm font-medium px-2 py-1 rounded hover:bg-surface-darker transition-colors">
+                            <button
+                              onClick={() => {
+                                if (row.certIpfsUrl) window.open(row.certIpfsUrl, "_blank", "noopener,noreferrer");
+                              }}
+                              className="text-text-secondary hover:text-white text-sm font-medium px-2 py-1 rounded hover:bg-surface-darker transition-colors"
+                              disabled={!row.certIpfsUrl}
+                              title={row.certIpfsUrl ? "View certificate" : "Certificate unavailable"}
+                            >
                               <span className="material-symbols-outlined text-[18px]">
                                 visibility
                               </span>
                             </button>
-                            <button className="text-text-secondary hover:text-white text-sm font-medium px-2 py-1 rounded hover:bg-surface-darker transition-colors">
+                            <button
+                              onClick={() => {
+                                if (row.certIpfsCid) {
+                                  window.open(`https://ipfs.io/ipfs/${row.certIpfsCid}`, "_blank", "noopener,noreferrer");
+                                }
+                              }}
+                              className="text-text-secondary hover:text-white text-sm font-medium px-2 py-1 rounded hover:bg-surface-darker transition-colors"
+                              disabled={!row.certIpfsCid}
+                              title={row.certIpfsCid ? "Open by IPFS hash" : "IPFS hash unavailable"}
+                            >
                               <span className="material-symbols-outlined text-[18px]">
                                 open_in_new
                               </span>
@@ -508,6 +534,22 @@ export default function CertifierPanel() {
                 This action is irreversible. A unique certificate hash will be
                 generated and stored on the blockchain.
               </p>
+              <div className="mb-4 relative z-10">
+                <label className="block text-xs text-text-secondary mb-2 uppercase tracking-wider">
+                  Upload Certificate (required)
+                </label>
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx"
+                  onChange={(e) => setCertificateFile(e.target.files?.[0] || null)}
+                  className="w-full text-sm text-white file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+                />
+                <p className="text-xs text-text-secondary mt-2 break-all">
+                  {certificateFile
+                    ? `Selected: ${certificateFile.name}`
+                    : "No certificate selected"}
+                </p>
+              </div>
               <div className="bg-surface-darker/50 rounded-lg p-3 mb-6 border border-border-dark relative z-10">
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-text-secondary">Gas Fee Est.</span>
@@ -522,8 +564,12 @@ export default function CertifierPanel() {
                 <button className="flex-1 px-4 py-2 border border-border-dark text-text-secondary hover:text-white rounded-lg text-sm font-medium hover:bg-surface-darker transition-colors">
                   Cancel
                 </button>
-                <button className="flex-1 bg-primary text-background-dark hover:bg-primary-hover rounded-lg text-sm font-bold py-2 transition-shadow shadow-[0_0_15px_-3px_rgba(19,236,91,0.3)]">
-                  Confirm Approval
+                <button
+                  onClick={() => handleApprove(selectedPending.address)}
+                  disabled={loading || approvalProcessing === selectedPending.address || !certificateFile}
+                  className="flex-1 bg-primary text-background-dark hover:bg-primary-hover rounded-lg text-sm font-bold py-2 transition-shadow shadow-[0_0_15px_-3px_rgba(19,236,91,0.3)] disabled:opacity-50"
+                >
+                  {approvalProcessing === selectedPending.address ? "Approving..." : "Confirm Approval"}
                 </button>
               </div>
             </div>

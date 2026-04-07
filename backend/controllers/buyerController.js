@@ -1,7 +1,8 @@
-const { getWriteContract } = require("../config/contract");
+const { getWriteContract, getReadContract } = require("../config/contract");
 const saveRecord = require("../utils/saveRecord");
 const { safeContractCall } = require("../utils/contractErrors");
 const { ethers } = require("ethers");
+const Record = require("../models/Record");
 
 /**
  * POST /api/buyers/register
@@ -73,4 +74,87 @@ async function registerBuyer(req, res, next) {
   }
 }
 
-module.exports = { registerBuyer };
+/**
+ * GET /api/buyers/seller-status/:sellerAddress
+ * Buyer-safe visibility endpoint: exposes only summary statuses.
+ */
+async function getSellerStatusForBuyer(req, res, next) {
+  try {
+    const { sellerAddress } = req.params;
+
+    if (!sellerAddress || !ethers.isAddress(sellerAddress)) {
+      return res.status(400).json({ success: false, error: "Valid sellerAddress is required" });
+    }
+
+    const [latestRegistration, latestApproval] = await Promise.all([
+      Record.findOne({
+        recordType: "SELLER_REGISTERED",
+        "rawData.sellerAddress": sellerAddress,
+      }).sort({ createdAt: -1 }),
+      Record.findOne({
+        recordType: "SELLER_APPROVED",
+        "rawData.sellerAddress": sellerAddress,
+      }).sort({ createdAt: -1 }),
+    ]);
+
+    let approvalStatus = "not_registered";
+    if (latestRegistration) {
+      approvalStatus = "pending";
+    }
+    if (latestApproval?.rawData?.decision === "approved") {
+      approvalStatus = "approved";
+    } else if (latestApproval?.rawData?.decision === "rejected") {
+      approvalStatus = "rejected";
+    }
+
+    const certifierCertificateIssued = Boolean(
+      latestApproval?.rawData?.decision === "approved" && latestApproval?.rawData?.certDocHash,
+    );
+
+    const contract = getReadContract();
+    const [complianceStatuses, isFullyCompliant] = await Promise.all([
+      contract.getSellerCompliance(sellerAddress),
+      contract.isSellerCompliant(sellerAddress),
+    ]);
+
+    const complianceTypes = [
+      "FireSafety",
+      "BuildingSafety",
+      "LaborStandards",
+      "Environmental",
+    ];
+
+    const compliance = complianceTypes.map((type, idx) => ({
+      type,
+      issued: Boolean(complianceStatuses[idx]),
+    }));
+
+    const complianceIssuedCount = compliance.filter((c) => c.issued).length;
+    const issuedCount = (certifierCertificateIssued ? 1 : 0) + complianceIssuedCount;
+    const requiredCount = 5;
+
+    res.json({
+      success: true,
+      data: {
+        sellerAddress,
+        approvalStatus,
+        certifierCertificateIssued,
+        compliance: {
+          isFullyCompliant: Boolean(isFullyCompliant),
+          issuedCount: complianceIssuedCount,
+          requiredCount: 4,
+          items: compliance,
+        },
+        certificateIssuanceSummary: {
+          issuedCount,
+          requiredCount,
+          allIssued: issuedCount === requiredCount,
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { registerBuyer, getSellerStatusForBuyer };

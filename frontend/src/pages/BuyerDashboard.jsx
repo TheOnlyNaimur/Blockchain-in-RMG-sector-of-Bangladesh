@@ -7,7 +7,8 @@ import Toast from "../components/ui/Toast";
 import { useUser } from "../contexts/UserContext";
 import { useWallet } from "../hooks/useWallet";
 import { useAccount } from "wagmi";
-import { useOrderAcceptance, useOrderPayment, useOrdersFetching } from "../hooks";
+import { useOrderPayment, useOrdersFetching, useOrderAcceptance } from "../hooks";
+import { buyersApi } from "../api";
 import { ethers } from "ethers";
 import { CONTRACT_CONFIG } from "../config/contracts";
 import { generateOrderPDF } from "../utils/pdfGenerator";
@@ -16,13 +17,10 @@ export default function BuyerDashboard() {
   const { userProfile } = useUser();
   const { isConnected, createSignedPayload } = useWallet();
   const {
-    execute: acceptOrder,
-    loading: acceptingOrder,
-  } = useOrderAcceptance();
-  const {
     execute: payOrder,
     loading: payingOrder,
   } = useOrderPayment();
+  const { execute: acceptOrderApi } = useOrderAcceptance();
   const { data: allOrders = [], refetch: refetchOrders } = useOrdersFetching();
 
   const [orders, setOrders] = useState([]);
@@ -32,6 +30,14 @@ export default function BuyerDashboard() {
   const [showCreateRequest, setShowCreateRequest] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [toast, setToast] = useState(null);
+  const [sellerStatusMap, setSellerStatusMap] = useState({});
+  const [activeTab, setActiveTab] = useState("orders");
+  const [searchSellerAddress, setSearchSellerAddress] = useState("");
+  const [searchedSellerStatus, setSearchedSellerStatus] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [acceptingOrder, setAcceptingOrder] = useState(false);
+  const [pyusdBalance, setPyusdBalance] = useState("0");
+  const [pyusdAllowance, setPyusdAllowance] = useState("0");
 
   const { address: walletAddress } = useAccount();
 
@@ -45,43 +51,144 @@ export default function BuyerDashboard() {
     }
   }, [allOrders, userProfile, walletAddress]);
 
+  useEffect(() => {
+    const fetchSellerStatuses = async () => {
+      const sellerAddresses = Array.from(
+        new Set((orders || []).map((o) => o.seller).filter(Boolean)),
+      );
+
+      if (sellerAddresses.length === 0) {
+        setSellerStatusMap({});
+        return;
+      }
+
+      const entries = await Promise.all(
+        sellerAddresses.map(async (address) => {
+          try {
+            const status = await buyersApi
+              .getSellerStatus(address)
+              .then((res) => res.data || res);
+            return [address, status];
+          } catch {
+            return [address, null];
+          }
+        }),
+      );
+
+      setSellerStatusMap(Object.fromEntries(entries));
+    };
+
+    fetchSellerStatuses();
+  }, [orders]);
+
+  const getApprovalBadge = (approvalStatus) => {
+    if (approvalStatus === "approved") return { label: "Approved", color: "text-green-400 bg-green-500/10" };
+    if (approvalStatus === "pending") return { label: "Pending", color: "text-yellow-400 bg-yellow-500/10" };
+    if (approvalStatus === "rejected") return { label: "Rejected", color: "text-red-400 bg-red-500/10" };
+    return { label: "Not Registered", color: "text-slate-400 bg-slate-500/10" };
+  };
+
+  const handleSearchSellerStatus = async () => {
+    const address = searchSellerAddress.trim();
+    if (!ethers.isAddress(address)) {
+      setSearchedSellerStatus(null);
+      setToast({
+        message: "Enter a valid seller wallet address.",
+        type: "error",
+        icon: "error",
+      });
+      return;
+    }
+
+    setSearchLoading(true);
+    setSearchedSellerStatus(null);
+    try {
+      const status = await buyersApi
+        .getSellerStatus(address)
+        .then((res) => res.data || res);
+      setSearchedSellerStatus(status);
+    } catch (err) {
+      setToast({
+        message: err?.message || "Failed to fetch seller status.",
+        type: "error",
+        icon: "error",
+      });
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
   const handleReview = (order) => {
     setSelectedOrder(order);
     setShowReviewModal(true);
   };
-  const handleAccept = (order) => {
+  const handleAccept = async (order) => {
     setSelectedOrder(order);
     setAmountToEscrow(order.amount ? order.amount.replace(/[^0-9.]/g, "") : "");
     setShowAcceptModal(true);
+
+    if (window.ethereum) {
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const signer = await provider.getSigner();
+        const signerAddress = await signer.getAddress();
+        const usdtContract = new ethers.Contract(
+          CONTRACT_CONFIG.usdt,
+          [
+            "function balanceOf(address account) public view returns (uint256)",
+            "function allowance(address owner, address spender) public view returns (uint256)"
+          ],
+          signer
+        );
+        const bal = await usdtContract.balanceOf(signerAddress);
+        const allow = await usdtContract.allowance(signerAddress, CONTRACT_CONFIG.address);
+        setPyusdBalance(ethers.formatUnits(bal, 6));
+        setPyusdAllowance(ethers.formatUnits(allow, 6));
+      } catch (err) {
+        console.error("Failed to fetch PYUSD data:", err);
+      }
+    }
   };
 
   const handleAcceptOrder = async () => {
     if (!selectedOrder || !isConnected) return;
+    setAcceptingOrder(true);
     try {
       if (!window.ethereum) throw new Error("No ethereum provider found. Install MetaMask!");
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
-
+      const signerAddress = await signer.getAddress();
       const usdtContract = new ethers.Contract(
         CONTRACT_CONFIG.usdt,
-        ["function approve(address spender, uint256 amount) public returns (bool)"],
+        [
+          "function approve(address spender, uint256 amount) public returns (bool)",
+          "function balanceOf(address account) public view returns (uint256)",
+        ],
         signer
       );
 
-      setToast({ message: "Approving USDT transfer in MetaMask...", type: "info", icon: "hourglass_empty" });
-      const amountWei = ethers.parseEther(amountToEscrow.toString());
-      
+      const amountWei = ethers.parseUnits(amountToEscrow.toString(), 6);
+
+      const currentBalance = await usdtContract.balanceOf(signerAddress);
+      if (currentBalance < amountWei) {
+        throw new Error("Insufficient PYUSD balance for escrow.");
+      }
+
+      setToast({ message: "Approving PYUSD transfer in MetaMask...", type: "info", icon: "hourglass_empty" });
       const tx = await usdtContract.approve(CONTRACT_CONFIG.address, amountWei);
-      setToast({ message: "Waiting for USDT approval transaction to mine...", type: "info", icon: "hourglass_empty" });
+      setToast({ message: "Waiting for PYUSD approval transaction to mine...", type: "info", icon: "hourglass_empty" });
       await tx.wait();
 
-      setToast({ message: "Approval successful! Now accepting order...", type: "info", icon: "hourglass_empty" });
+      setToast({ message: "Approval successful! Submitting order acceptance...", type: "info", icon: "hourglass_empty" });
 
-      // Call the hook with order acceptance data
       const numericalOrderId = selectedOrder.orderId;
-      const result = await acceptOrder({
+      
+      const result = await acceptOrderApi({
         orderId: numericalOrderId,
-        data: { orderId: numericalOrderId, amount: amountWei.toString() },
+        data: {
+          orderId: numericalOrderId,
+          amount: amountWei.toString(),
+        },
       });
 
       // Update order status in UI
@@ -93,6 +200,7 @@ export default function BuyerDashboard() {
         ),
       );
       setShowAcceptModal(false);
+      refetchOrders();
       setToast({
         message: `Order accepted! Tx: ${result.txHash?.slice(0, 10)}...`,
         type: "success",
@@ -100,10 +208,12 @@ export default function BuyerDashboard() {
       });
     } catch (err) {
       setToast({
-        message: `Failed to accept order: ${err.message || "Unknown error"}`,
+        message: `Failed to accept order: ${err?.shortMessage || err?.reason || err?.message || "Unknown error"}`,
         type: "error",
         icon: "error",
       });
+    } finally {
+      setAcceptingOrder(false);
     }
   };
 
@@ -113,8 +223,7 @@ export default function BuyerDashboard() {
       // Call the hook with payment data
       const numericalOrderId = selectedOrder.orderId;
       const rawAmount = selectedOrder.amount.replace(/[$,]/g, "");
-      const amountWei = ethers.parseEther(rawAmount).toString();
-      
+      const amountWei = ethers.parseUnits(rawAmount, 6).toString();
       const result = await payOrder({
         orderId: numericalOrderId,
         data: {
@@ -122,8 +231,6 @@ export default function BuyerDashboard() {
           amount: amountWei,
         },
       });
-
-      // Update order status in UI
       setOrders((prev) =>
         prev.map((o) =>
           o.id === selectedOrder.id
@@ -254,6 +361,113 @@ export default function BuyerDashboard() {
           </div>
         </div>
 
+        <div className="mb-6 border-b border-border-dark">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setActiveTab("orders")}
+              className={`px-4 py-2.5 text-sm font-semibold rounded-t-lg transition-colors ${
+                activeTab === "orders"
+                  ? "text-white border-b-2 border-primary"
+                  : "text-text-secondary hover:text-white"
+              }`}
+            >
+              Orders
+            </button>
+            <button
+              onClick={() => setActiveTab("seller-status")}
+              className={`px-4 py-2.5 text-sm font-semibold rounded-t-lg transition-colors ${
+                activeTab === "seller-status"
+                  ? "text-white border-b-2 border-primary"
+                  : "text-text-secondary hover:text-white"
+              }`}
+            >
+              Seller Status Check
+            </button>
+          </div>
+        </div>
+
+        {activeTab === "seller-status" && (
+          <div className="space-y-6">
+            <div className="rounded-xl border border-border-dark bg-surface-dark p-5">
+              <h2 className="text-white text-lg font-bold mb-2">Search Seller Status</h2>
+              <p className="text-text-secondary text-sm mb-4">
+                Search by seller wallet address to view approval status and certificate confirmation summary.
+              </p>
+              <div className="flex flex-col md:flex-row gap-3">
+                <input
+                  value={searchSellerAddress}
+                  onChange={(e) => setSearchSellerAddress(e.target.value)}
+                  placeholder="0x... seller address"
+                  className="flex-1 bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary px-4 py-2.5"
+                />
+                <button
+                  onClick={handleSearchSellerStatus}
+                  disabled={searchLoading}
+                  className="px-4 py-2.5 bg-primary text-background-dark rounded-lg text-sm font-bold hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {searchLoading ? "Searching..." : "Search"}
+                </button>
+              </div>
+            </div>
+
+            {searchedSellerStatus && (
+              <div className="rounded-xl border border-border-dark bg-surface-dark p-5">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
+                  <div>
+                    <p className="text-text-secondary text-xs uppercase tracking-wider mb-1">Seller Address</p>
+                    <p className="text-white font-mono text-sm break-all">{searchedSellerStatus.sellerAddress}</p>
+                  </div>
+                  <span
+                    className={`px-3 py-1 rounded text-xs font-semibold w-fit ${
+                      getApprovalBadge(searchedSellerStatus.approvalStatus).color
+                    }`}
+                  >
+                    {getApprovalBadge(searchedSellerStatus.approvalStatus).label}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 rounded-lg border border-border-dark bg-background-dark">
+                    <p className="text-text-secondary text-xs uppercase tracking-wider mb-2">Certifier Confirmation</p>
+                    <p className={`text-sm font-semibold ${searchedSellerStatus.certifierCertificateIssued ? "text-green-400" : "text-yellow-400"}`}>
+                      {searchedSellerStatus.certifierCertificateIssued ? "Issued" : "Pending"}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-lg border border-border-dark bg-background-dark">
+                    <p className="text-text-secondary text-xs uppercase tracking-wider mb-2">Certificate Summary</p>
+                    <p className="text-white text-sm font-semibold">
+                      {searchedSellerStatus.certificateIssuanceSummary.issuedCount}/
+                      {searchedSellerStatus.certificateIssuanceSummary.requiredCount} issued
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-lg border border-border-dark bg-background-dark">
+                    <p className="text-text-secondary text-xs uppercase tracking-wider mb-2">Compliance Confirmation</p>
+                    <p className={`text-sm font-semibold ${searchedSellerStatus.compliance.isFullyCompliant ? "text-green-400" : "text-yellow-400"}`}>
+                      {searchedSellerStatus.compliance.isFullyCompliant ? "Fully Compliant" : "Not Fully Compliant"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-5 p-4 rounded-lg border border-border-dark bg-background-dark">
+                  <p className="text-text-secondary text-xs uppercase tracking-wider mb-3">Compliance Certificate Types</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {searchedSellerStatus.compliance.items.map((item) => (
+                      <div key={item.type} className="flex items-center justify-between text-sm border border-border-dark rounded px-3 py-2">
+                        <span className="text-white">{item.type}</span>
+                        <span className={item.issued ? "text-green-400 font-semibold" : "text-yellow-400 font-semibold"}>
+                          {item.issued ? "Issued" : "Pending"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "orders" && (
+          <>
         {/* Metrics */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <StatCard
@@ -330,9 +544,28 @@ export default function BuyerDashboard() {
                         >
                           {order.seller.slice(2, 4).toUpperCase()}
                         </div>
-                        <span className="text-white text-sm font-medium">
-                          {order.seller}
-                        </span>
+                        <div className="min-w-0">
+                          <span className="text-white text-sm font-medium block truncate max-w-[240px]">
+                            {order.seller}
+                          </span>
+                          {sellerStatusMap[order.seller] ? (
+                            <div className="flex items-center gap-2 mt-1">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-semibold ${getApprovalBadge(sellerStatusMap[order.seller].approvalStatus).color}`}
+                              >
+                                {getApprovalBadge(sellerStatusMap[order.seller].approvalStatus).label}
+                              </span>
+                              <span className="text-[10px] text-text-secondary">
+                                Certificates: {sellerStatusMap[order.seller].certificateIssuanceSummary.issuedCount}/
+                                {sellerStatusMap[order.seller].certificateIssuanceSummary.requiredCount}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-text-secondary mt-1 block">
+                              Seller status unavailable
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-text-secondary text-sm">
@@ -355,7 +588,7 @@ export default function BuyerDashboard() {
                         {order.amount}
                       </span>
                       <span className="text-xs text-text-secondary block">
-                        USDT
+                        PYUSD
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -445,6 +678,8 @@ export default function BuyerDashboard() {
             </div>
           </div>
         </div>
+          </>
+        )}
 
         {/* ── REVIEW ORDER MODAL ── */}
         {showReviewModal && selectedOrder && (
@@ -518,7 +753,7 @@ export default function BuyerDashboard() {
                     </p>
                     <p className="text-white font-mono font-bold">
                       {selectedOrder.amount}{" "}
-                      <span className="text-text-secondary text-xs">USDT</span>
+                      <span className="text-text-secondary text-xs">PYUSD</span>
                     </p>
                   </div>
                 </div>
@@ -702,7 +937,7 @@ export default function BuyerDashboard() {
                       Total Required
                     </p>
                     <p className="text-white text-xl font-mono font-bold mt-1">
-                      {selectedOrder.amount.replace("$", "")} USDT
+                      {selectedOrder.amount.replace("$", "")} PYUSD
                     </p>
                   </div>
                   <div className="text-right">
@@ -710,7 +945,7 @@ export default function BuyerDashboard() {
                       Your Balance
                     </p>
                     <p className="text-white text-sm font-mono mt-1">
-                      45,230.50 USDT
+                      {pyusdBalance} PYUSD
                     </p>
                   </div>
                 </div>
@@ -720,12 +955,14 @@ export default function BuyerDashboard() {
                     <label className="text-sm font-medium text-white">
                       Token Allowance
                     </label>
-                    <span className="text-xs text-yellow-500 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[14px]">
-                        warning
+                    {Number(pyusdAllowance) < Number(amountToEscrow || 0) && (
+                      <span className="text-xs text-yellow-500 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-[14px]">
+                          warning
+                        </span>
+                        Insufficient Allowance
                       </span>
-                      Insufficient Allowance
-                    </span>
+                    )}
                   </div>
                   <div className="flex w-full items-center rounded-lg bg-background-dark border border-border-dark h-12 px-4">
                     <input
@@ -736,12 +973,12 @@ export default function BuyerDashboard() {
                       placeholder="Amount to Escrow"
                     />
                     <span className="text-text-secondary font-bold ml-2">
-                      USDT
+                      PYUSD
                     </span>
                   </div>
                   <p className="text-xs text-text-secondary">
                     Current Allowance:{" "}
-                    <span className="font-mono text-white">0.00 USDT</span>
+                    <span className="font-mono text-white">{pyusdAllowance} PYUSD</span>
                   </p>
                 </div>
 
@@ -757,7 +994,7 @@ export default function BuyerDashboard() {
                     disabled={acceptingOrder || !amountToEscrow}
                     className="flex-[2] py-3 px-4 rounded-lg bg-primary text-background-dark font-bold hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20 flex items-center justify-center gap-2 group disabled:opacity-50"
                   >
-                    {acceptingOrder ? "Approving..." : "Approve USDT"}
+                    {acceptingOrder ? "Approving..." : "Approve PYUSD"}
                     <span className="material-symbols-outlined group-hover:translate-x-1 transition-transform text-[18px]">
                       arrow_forward
                     </span>
@@ -765,7 +1002,7 @@ export default function BuyerDashboard() {
                 </div>
                 <p className="text-center text-xs text-text-secondary">
                   By approving, you grant the Escrow Smart Contract permission
-                  to move the specified amount of USDT.
+                  to move the specified amount of PYUSD.
                 </p>
               </div>
             </div>
@@ -844,7 +1081,7 @@ export default function BuyerDashboard() {
                   </div>
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium text-white">
-                      Unit Price (USDT)
+                      Unit Price (PYUSD)
                     </label>
                     <input
                       className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3 placeholder-[#5c7263]"
@@ -906,7 +1143,7 @@ export default function BuyerDashboard() {
                   </span>
                   <p className="text-xs text-text-secondary">
                     Your request will be sent to the seller for review. Once
-                    confirmed, you will be asked to escrow USDT into the smart
+                    confirmed, you will be asked to escrow PYUSD into the smart
                     contract.
                   </p>
                 </div>

@@ -6,6 +6,8 @@ const {
 const saveRecord = require("../utils/saveRecord");
 const { safeContractCall } = require("../utils/contractErrors");
 const { ethers } = require("ethers");
+const { Readable } = require("stream");
+const { uploadToIPFS, getIPFSUrl } = require("../utils/ipfs");
 
 /**
  * POST /api/sellers/register
@@ -103,6 +105,41 @@ async function approveSeller(req, res, next) {
       });
     }
 
+    const assignNum = Number(assign);
+    if (!Number.isInteger(assignNum) || (assignNum !== 1 && assignNum !== 2)) {
+      return res.status(400).json({
+        success: false,
+        error: "assign must be 1 (approve) or 2 (reject)",
+      });
+    }
+
+    if (assignNum === 1 && !req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "Certificate file is required before approving a seller",
+      });
+    }
+
+    let certIpfsCid = null;
+    let certIpfsUrl = null;
+    let certDocHash = null;
+
+    if (assignNum === 1 && req.file) {
+      const stream = Readable.from(req.file.buffer);
+      stream.path = req.file.originalname;
+
+      const ipfsResult = await uploadToIPFS(stream, req.file.originalname, {
+        sellerAddress,
+        certifierAddress: process.env.CERTIFIER_ADDRESS || "unknown",
+        certificateType: "seller-approval",
+        mimeType: req.file.mimetype,
+      });
+
+      certIpfsCid = ipfsResult.cid;
+      certIpfsUrl = ipfsResult.ipfsUrl;
+      certDocHash = ethers.keccak256(ethers.toUtf8Bytes(certIpfsCid));
+    }
+
     const privateKey = req.body.privateKey || process.env.CERTIFIER_PRIVATE_KEY;
     if (!privateKey) {
       return res.status(400).json({ success: false, error: "privateKey is required or backend not configured" });
@@ -112,26 +149,83 @@ async function approveSeller(req, res, next) {
     const result = await safeContractCall({
       contract,
       method: "approveseller",
-      args: [sellerAddress, BigInt(assign)],
+      args: [sellerAddress, BigInt(assignNum)],
       context: "approveSeller",
       res,
     });
     if (!result) return;
 
     const { receipt } = result;
-    const statusLabel = Number(assign) === 1 ? "approved" : "rejected";
+    const statusLabel = assignNum === 1 ? "approved" : "rejected";
 
     await saveRecord("SELLER_APPROVED", receipt, {
       certifierAddress: process.env.CERTIFIER_ADDRESS,
       sellerAddress,
       decision: statusLabel,
+      certIpfsCid,
+      certIpfsUrl,
+      certDocHash,
+      certificateFileName: req.file?.originalname || null,
+      certificateMimeType: req.file?.mimetype || null,
+      certificateSize: req.file?.size || null,
     });
 
     res.json({
       success: true,
       txHash: receipt.hash,
       blockNumber: receipt.blockNumber,
+      certIpfsCid,
+      certIpfsUrl,
+      certDocHash,
       message: `Seller ${statusLabel} successfully.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/sellers/certificates/:hash
+ */
+async function getCertificateByHash(req, res, next) {
+  try {
+    const { hash } = req.params;
+    if (!hash) {
+      return res.status(400).json({ success: false, error: "hash is required" });
+    }
+
+    const Record = require("../models/Record");
+    const record = await Record.findOne({
+      recordType: "SELLER_APPROVED",
+      "rawData.decision": { $ne: "rejected" },
+      $or: [
+        { "rawData.certDocHash": hash },
+        { "rawData.certIpfsCid": hash },
+      ],
+    }).sort({ createdAt: -1 });
+
+    if (!record) {
+      return res.status(404).json({
+        success: false,
+        error: "Certificate not found for provided hash",
+      });
+    }
+
+    const cid = record.rawData?.certIpfsCid || null;
+    const certUrl = record.rawData?.certIpfsUrl || (cid ? getIPFSUrl(cid) : null);
+
+    res.json({
+      success: true,
+      data: {
+        sellerAddress: record.rawData?.sellerAddress,
+        certDocHash: record.rawData?.certDocHash,
+        certIpfsCid: cid,
+        certIpfsUrl: certUrl,
+        certificateFileName: record.rawData?.certificateFileName,
+        txHash: record.txHash,
+        blockNumber: record.blockNumber,
+        createdAt: record.createdAt,
+      },
     });
   } catch (err) {
     next(err);
@@ -166,7 +260,10 @@ async function getSellerEvents(req, res, next) {
           const seller = sellersMap.get(data.sellerAddress);
           seller.status = data.decision === "approved" ? "approved" : "rejected";
           seller.date = new Date(r.createdAt).toLocaleDateString();
-          seller.certHash = r.contractFeedback?.txHash || "0x00";
+          seller.certHash = data.certDocHash || "N/A";
+          seller.certIpfsCid = data.certIpfsCid || null;
+          seller.certIpfsUrl = data.certIpfsUrl || null;
+          seller.certificateFileName = data.certificateFileName || null;
           seller.gasUsed = r.contractFeedback?.gasUsed ? `${r.contractFeedback.gasUsed} gas` : "N/A";
           seller.reason = data.decision === "rejected" ? "Verification failed" : null;
           seller.reviewer = "Certifier Node";
@@ -180,4 +277,9 @@ async function getSellerEvents(req, res, next) {
   }
 }
 
-module.exports = { registerSeller, approveSeller, getSellerEvents };
+module.exports = {
+  registerSeller,
+  approveSeller,
+  getCertificateByHash,
+  getSellerEvents,
+};

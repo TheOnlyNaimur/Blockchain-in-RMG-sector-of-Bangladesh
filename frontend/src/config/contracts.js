@@ -18,7 +18,7 @@ export const CONTRACT_CONFIG = {
   // Contract address (set in frontend/.env after 'forge script')
   address: import.meta.env.VITE_CONTRACT_ADDRESS || "",
 
-  // USDT Token address (set in frontend/.env after MockUSDT deployment)
+  // ERC-20 token address (set in frontend/.env)
   usdt: import.meta.env.VITE_USDT_ADDRESS || "",
 };
 

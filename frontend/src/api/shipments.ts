@@ -42,6 +42,21 @@ export interface ShipmentEvent {
   blockNumber: number;
 }
 
+export interface ShipmentDocumentHash {
+  key: string;
+  label: string;
+  hash: string;
+  uploaded: boolean;
+}
+
+export interface ShipmentDocumentsDetail {
+  shipId: string;
+  uploadedCount: number;
+  requiredCount: number;
+  readyForExportClearance: boolean;
+  documents: ShipmentDocumentHash[];
+}
+
 export const shipmentsApi = {
   request: (req: ShipmentRequestRequest) =>
     apiClient.post<ApiResponse<{ txHash: string; shipId: string }>>(
@@ -69,6 +84,11 @@ export const shipmentsApi = {
 
   getShipment: (shipmentId: string) =>
     apiClient.get<ApiResponse<ShipmentDetail>>(`/shipments/${shipmentId}`),
+
+  getShipmentDocuments: (shipmentId: string) =>
+    apiClient.get<ApiResponse<ShipmentDocumentsDetail>>(
+      `/shipments/${shipmentId}/docs`,
+    ),
 
   getEvents: () =>
     apiClient.get<ApiResponse<ShipmentEvent[]>>("/shipments/events"),

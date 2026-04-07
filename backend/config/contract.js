@@ -1,5 +1,9 @@
 const { ethers } = require("ethers");
 const abi = require("../abi/MyContract.json");
+const usdtAbi = [
+  "function mint(address to, uint256 amount) external",
+  "function balanceOf(address account) external view returns (uint256)",
+];
 
 // Provider for reading blockchain data
 const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
@@ -33,9 +37,19 @@ function getRoleContract(rolePrivateKey) {
   return new ethers.Contract(process.env.CONTRACT_ADDRESS, abi, signer);
 }
 
+function getUsdtContract(privateKey) {
+  if (!process.env.USDT_ADDRESS) {
+    throw new Error("USDT_ADDRESS is not configured");
+  }
+
+  const signer = new ethers.Wallet(privateKey, provider);
+  return new ethers.Contract(process.env.USDT_ADDRESS, usdtAbi, signer);
+}
+
 module.exports = {
   provider,
   getReadContract,
   getWriteContract,
   getRoleContract,
+  getUsdtContract,
 };
