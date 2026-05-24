@@ -105,11 +105,11 @@ sequenceDiagram
   Note over SC: Certifier approves seller
   Note over SC: Compliance issues 4 certificates
 
-  Buyer->>API: POST /orders/requests (signed)
-  API->>DB: OrderRequest (pending)
+  Buyer->>API: POST orders requests signed
+  API->>DB: OrderRequest pending
   Seller->>SC: createOrder
-  Seller->>API: PATCH /orders/requests/:id/fulfill
-  API->>DB: link request → orderId
+  Seller->>API: PATCH fulfill request
+  API->>DB: link request to orderId
 
   Buyer->>SC: acceptOrder + escrow (PYUSD)
   Seller->>SC: createBatch
@@ -131,23 +131,28 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  subgraph API["/api"]
-    sellers[/sellers]
-    buyers[/buyers]
-    orders[/orders<br/>+ /requests]
-    batches[/batches]
-    shipments[/shipments]
-    compliance[/compliance]
-    customs[/customs]
-    audit[/audit<br/>timeline · trail · record]
-    records[/records]
-    ipfs[/ipfs]
-    access[/access<br/>revoke · restore]
+  subgraph api_routes ["api routes"]
+    direction TB
+    r_sellers[sellers]
+    r_buyers[buyers]
+    r_orders["orders + requests"]
+    r_batches[batches]
+    r_shipments[shipments]
+    r_compliance[compliance]
+    r_customs[customs]
+    r_audit["audit timeline trail record"]
+    r_records[records]
+    r_ipfs[ipfs]
+    r_access["access revoke restore"]
   end
 
-  API --> MongoDB[(MongoDB)]
-  API --> Contract[MyContract.sol]
-  ipfs --> Pinata[Pinata]
+  db[(MongoDB)]
+  contract[MyContract.sol]
+  pinata[Pinata IPFS]
+
+  api_routes --> db
+  api_routes --> contract
+  r_ipfs --> pinata
 ```
 
 ### 1) On-chain Layer (Solidity)
