@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import AppLayout from "../layouts/AppLayout";
 import { toast } from "react-hot-toast";
 import { keccak256, toUtf8Bytes } from "ethers";
+import { useAccount } from "wagmi";
+import { accessApi } from "../api";
 
 const CERT_TYPES = [
   { id: 0, label: "Fire Safety", icon: "fire_extinguisher", color: "text-red-500", bg: "bg-red-500/10" },
@@ -11,12 +13,20 @@ const CERT_TYPES = [
 ];
 
 export default function CompliancePanel() {
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+  const { address: walletAddress } = useAccount();
   const [sellerAddress, setSellerAddress] = useState("");
   const [selectedType, setSelectedType] = useState(0);
   const [selectedFile, setSelectedFile] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [revokingType, setRevokingType] = useState(null);
   const [sellerStatus, setSellerStatus] = useState(null);
   const [fetchingStatus, setFetchingStatus] = useState(false);
+
+  const [revokeTargetAddress, setRevokeTargetAddress] = useState("");
+  const [revokeReason, setRevokeReason] = useState("");
+  const [accessRevocations, setAccessRevocations] = useState([]);
+  const [accessLoading, setAccessLoading] = useState(false);
 
   // Fetch current compliance status for the given seller via REST
   const checkSellerStatus = async () => {
@@ -24,7 +34,7 @@ export default function CompliancePanel() {
     
     setFetchingStatus(true);
     try {
-      const response = await fetch(`http://localhost:3000/api/compliance/${sellerAddress}`);
+      const response = await fetch(`${API_BASE}/compliance/${sellerAddress}`);
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Failed to fetch status");
 
@@ -70,7 +80,7 @@ export default function CompliancePanel() {
       formData.append("file", selectedFile);
       formData.append("label", `Compliance-${sellerAddress}-${selectedType}`);
 
-      const ipfsRes = await fetch("http://localhost:3000/api/ipfs/upload", {
+      const ipfsRes = await fetch(`${API_BASE}/ipfs/upload`, {
         method: "POST",
         body: formData,
       });
@@ -81,7 +91,7 @@ export default function CompliancePanel() {
       const certDocHash = keccak256(toUtf8Bytes(cid));
 
       toast.loading("Issuing certificate to blockchain...", { id: "issue" });
-      const response = await fetch(`http://localhost:3000/api/compliance/issue`, {
+      const response = await fetch(`${API_BASE}/compliance/issue`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -104,6 +114,84 @@ export default function CompliancePanel() {
       toast.error(error.message || "Failed to issue certificate", { id: "issue" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAccessRevocations = async () => {
+    try {
+      const res = await accessApi.list(true);
+      if (res.success) setAccessRevocations(res.data || []);
+    } catch {
+      setAccessRevocations([]);
+    }
+  };
+
+  useEffect(() => {
+    loadAccessRevocations();
+  }, []);
+
+  const handleRevokeWalletAccess = async () => {
+    if (!walletAddress) return toast.error("Connect your compliance checker wallet first");
+    if (!revokeTargetAddress || revokeTargetAddress.length !== 42) {
+      return toast.error("Enter a valid wallet address to revoke");
+    }
+    setAccessLoading(true);
+    try {
+      const res = await accessApi.revoke({
+        address: revokeTargetAddress,
+        role: "seller",
+        reason: revokeReason || "Policy violation",
+        revokedBy: walletAddress,
+      });
+      if (!res.success) throw new Error(res.error || "Revoke failed");
+      toast.success(`Access revoked for ${revokeTargetAddress.slice(0, 10)}...`);
+      setRevokeTargetAddress("");
+      setRevokeReason("");
+      loadAccessRevocations();
+    } catch (err) {
+      toast.error(err.message || "Failed to revoke wallet access");
+    } finally {
+      setAccessLoading(false);
+    }
+  };
+
+  const handleRestoreWalletAccess = async (address) => {
+    if (!walletAddress) return toast.error("Connect your compliance checker wallet first");
+    setAccessLoading(true);
+    try {
+      const res = await accessApi.restore({ address, restoredBy: walletAddress });
+      if (!res.success) throw new Error(res.error || "Restore failed");
+      toast.success(`Access restored for ${address.slice(0, 10)}...`);
+      loadAccessRevocations();
+    } catch (err) {
+      toast.error(err.message || "Failed to restore access");
+    } finally {
+      setAccessLoading(false);
+    }
+  };
+
+  const handleRevokeCert = async (certTypeId) => {
+    if (!sellerAddress) return toast.error("Please enter a seller address");
+    setRevokingType(certTypeId);
+    try {
+      toast.loading("Revoking certificate on-chain...", { id: "revoke" });
+      const response = await fetch(`${API_BASE}/compliance/revoke`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sellerAddress,
+          certType: certTypeId,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Failed to revoke");
+
+      toast.success("Certificate revoked successfully.", { id: "revoke" });
+      checkSellerStatus();
+    } catch (err) {
+      toast.error(err.message || "Failed to revoke certificate", { id: "revoke" });
+    } finally {
+      setRevokingType(null);
     }
   };
 
@@ -273,6 +361,16 @@ export default function CompliancePanel() {
                             </a>
                           </div>
                         )}
+
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => handleRevokeCert(cert.id)}
+                            disabled={!hasCert || revokingType === cert.id}
+                            className="text-xs font-bold px-3 py-2 rounded-lg border border-border-dark bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-50"
+                          >
+                            {revokingType === cert.id ? "Revoking..." : "Revoke"}
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -284,6 +382,69 @@ export default function CompliancePanel() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Off-chain wallet access control (POC RBAC) */}
+        <div className="mt-8 rounded-xl border border-border-dark bg-surface-dark p-6">
+          <h2 className="text-white text-lg font-bold mb-1">Wallet Access Control</h2>
+          <p className="text-text-secondary text-sm mb-6">
+            Revoke off-chain API access for a wallet (signed relay endpoints). On-chain roles are unchanged.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-white">Wallet to revoke</label>
+              <input
+                className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg p-3 font-mono"
+                placeholder="0x..."
+                value={revokeTargetAddress}
+                onChange={(e) => setRevokeTargetAddress(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium text-white">Reason</label>
+              <input
+                className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg p-3"
+                placeholder="Policy violation"
+                value={revokeReason}
+                onChange={(e) => setRevokeReason(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <button
+            onClick={handleRevokeWalletAccess}
+            disabled={accessLoading}
+            className="px-4 py-2 bg-red-500/10 text-red-400 border border-red-500/30 rounded-lg text-sm font-bold hover:bg-red-500/20 disabled:opacity-50"
+          >
+            {accessLoading ? "Processing..." : "Revoke Wallet Access"}
+          </button>
+
+          {accessRevocations.length > 0 && (
+            <div className="mt-6 border-t border-border-dark pt-4">
+              <p className="text-xs text-text-secondary uppercase font-bold mb-3">Active revocations</p>
+              <div className="space-y-2">
+                {accessRevocations.map((r) => (
+                  <div
+                    key={r._id || r.address}
+                    className="flex items-center justify-between p-3 rounded-lg bg-background-dark border border-border-dark"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-white font-mono text-sm truncate">{r.address}</p>
+                      <p className="text-xs text-text-secondary">{r.reason || "No reason"}</p>
+                    </div>
+                    <button
+                      onClick={() => handleRestoreWalletAccess(r.address)}
+                      disabled={accessLoading}
+                      className="shrink-0 text-xs font-bold px-3 py-2 rounded-lg border border-primary/30 text-primary hover:bg-primary/10 disabled:opacity-50"
+                    >
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </AppLayout>

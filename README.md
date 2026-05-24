@@ -183,14 +183,14 @@ The system relies on an immutable on-chain backend. Because operations manipulat
 1. **KYC Submissions**: The Seller executes KYC protocols via digital signature.
 2. **Platform Approval**: The Certifier validates the credentials and triggers `approve` on-chain.
 3. **Compliance Safety**: The Compliance Checker manually inputs safety certificates via IPFS (Pinata). The system natively blocks any factory without Building, Labor, Fire, & Environmental safety certificates from doing business.
-4. **Purchase Order**: The International Buyer submits a Purchase Order mapping and locks their fiat/USDT valuation fully into the Smart Contract Escrow. 
+4. **Purchase Order**: The Buyer can initiate a purchase request off-chain (signed). The Seller then creates the on-chain order. Finally, the Buyer accepts the order and locks USDT into escrow on-chain.
 5. **Manufacturing**: Once escrow is locked, the Seller begins physical manufacturing and generates a cryptographic "Batch" linked to the Order.
 6. **QC Authority Review**: The third-party Quality Checker inspects the physical goods, and cross-references the dataset on-chain. They approve/reject.
 7. **Logistics Handshake**: The Seller passes the goods to the Freight Forwarder, who uploads the Bill of Lading and Certificate of Origin hashes onto IPFS, binding the CID hashes onto the EVM ledger.
 8. **Public Ledger**: Any transaction, document hash, and receipt is immediately pushed to the **Public Transaction Ledger**, accessible to all users for complete transparency without needing to authenticate or connect a web3 wallet.
 8. **Export / Import Gateways**: Local Bangladesh Customs flags it as `Export cleared`, and Receiving Customs flags it as `Import Cleared`.
 9. **Execution & Release**: The Buyer reviews arrival status. When delivery is confirmed mutually on-chain, the frozen USDT escrow is atomically funneled into the Seller's address.
-10. **Traceability Finality**: Every single execution is logged natively to the `TraceabilityDashboard`. Users can click "Download Audit" to pull verifiable timestamps natively exported into a PDF array.
+10. **Traceability Finality**: Every single execution is logged on-chain via `TraceEvent` and visualized in the `TraceabilityDashboard`. Users can download the audit trail as a PDF with verifiable timestamps.
 
 ---
 
@@ -229,7 +229,10 @@ When the script finishes executing, you will see a unified terminal pipeline con
 ✅ Issue Building Safety: {"success":true,...}
    ✓ Compliance status: ["Fire Safety","Building Safety","Labor Standards","Environmental"]
 
-── Phase 5: Seller Creates Order ──
+── Phase 5: Buyer Creates Purchase Request ──
+✅ Create PO Request: {"success":true,"requestId":1}
+
+── Phase 6: Seller Creates Order ──
 ✅ Create Order: {"success":true,"orderId":1}
    Order ID: 1
 

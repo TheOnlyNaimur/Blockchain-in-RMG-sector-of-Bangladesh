@@ -1,5 +1,6 @@
 const express = require("express");
 const { createOrder, acceptOrder, confirmDelivery, forceRelease, payOrder, getOrders } = require("../controllers/orderController");
+const { createOrderRequest, getOrderRequests, fulfillOrderRequest, cancelOrderRequest } = require("../controllers/orderRequestController");
 
 const router = express.Router();
 
@@ -8,6 +9,18 @@ router.get("/", getOrders);
 
 // POST /api/orders            — seller creates an order
 router.post("/", createOrder);
+
+// POST /api/orders/requests             — buyer creates a PO request (off-chain)
+router.post("/requests", createOrderRequest);
+
+// GET /api/orders/requests              — list requests filtered by buyer/seller
+router.get("/requests", getOrderRequests);
+
+// PATCH /api/orders/requests/:requestId/fulfill — seller links request to orderId
+router.patch("/requests/:requestId/fulfill", fulfillOrderRequest);
+
+// PATCH /api/orders/requests/:requestId/cancel  — buyer cancels request
+router.patch("/requests/:requestId/cancel", cancelOrderRequest);
 
 // POST /api/orders/:orderId/accept           — buyer accepts
 router.post("/:orderId/accept", acceptOrder);

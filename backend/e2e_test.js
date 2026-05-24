@@ -113,21 +113,51 @@ async function main() {
   console.log(`   ✓ Compliance status: ${JSON.stringify(cs.compliance)}`);
 
   // ┌─────────────────────────────────────────┐
-  // │  Phase 5: Create Order (Acct 1 → 2)     │
+  // │  Phase 5: Buyer Creates PO Request      │
   // └─────────────────────────────────────────┘
-  console.log("\n── Phase 5: Seller Creates Order ──");
+  console.log("\n── Phase 5: Buyer Creates Purchase Request ──");
+  const poReqPayload = await signPayload(BUYER_PK, {
+    sellerAddress: SELLER_ADDR,
+    details: "10,000 RMG T-Shirts",
+    amount: "1000",
+    hsCode: "6109.10",
+    destination: "New York",
+  });
+  const reqRes = log("Create PO Request", await post(`${API}/orders/requests`, poReqPayload));
+  if (!reqRes.success) return;
+  const requestId = reqRes.requestId;
+  console.log(`   Request ID: ${requestId}`);
+
+  // ┌─────────────────────────────────────────┐
+  // │  Phase 6: Seller Creates Order (chain)  │
+  // └─────────────────────────────────────────┘
+  console.log("\n── Phase 6: Seller Creates Order ──");
   const orderPayload = await signPayload(SELLER_PK, {
-    details: "10,000 RMG T-Shirts", buyerAddress: BUYER_ADDR, amount: "1000", hsCode: "6109.10", destination: "New York",
+    details: "10,000 RMG T-Shirts",
+    buyerAddress: BUYER_ADDR,
+    amount: "1000",
+    hsCode: "6109.10",
+    destination: "New York",
   });
   const orderRes = log("Create Order", await post(`${API}/orders`, orderPayload));
   if (!orderRes.success) return;
   const orderId = orderRes.orderId;
   console.log(`   Order ID: ${orderId}`);
 
+  console.log("\n── Phase 6b: Seller Links Request to Order ──");
+  const fulfillRes = await fetch(`${API}/orders/requests/${requestId}/fulfill`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ orderId, sellerAddress: SELLER_ADDR }),
+  });
+  const fulfillJson = await fulfillRes.json();
+  log("Fulfill Request", fulfillJson);
+  if (!fulfillJson.success) return;
+
   // ┌─────────────────────────────────────────┐
-  // │  Phase 6: Buyer Accepts Order (Acct 2)  │
+  // │  Phase 7: Buyer Accepts Order (Acct 2)  │
   // └─────────────────────────────────────────┘
-  console.log("\n── Phase 6: Buyer Accepts Order ──");
+  console.log("\n── Phase 7: Buyer Accepts Order ──");
   
   // First, Buyer must approve the contract to spend their USDT
   const providerApprove = new ethers.JsonRpcProvider(RPC);
@@ -147,9 +177,9 @@ async function main() {
   const acceptRes = log("Buyer Accept", await post(`${API}/orders/${orderId}/accept`, acceptPayload));
 
   // ┌─────────────────────────────────────────┐
-  // │  Phase 7: Create Batch (Acct 1)         │
+  // │  Phase 8: Create Batch (Acct 1)         │
   // └─────────────────────────────────────────┘
-  console.log("\n── Phase 7: Seller Creates Batch ──");
+  console.log("\n── Phase 8: Seller Creates Batch ──");
   const batchPayload = await signPayload(SELLER_PK, { orderId: Number(orderId), productInfo: "Cotton T-Shirts 10K units" });
   const batchRes = log("Create Batch", await post(`${API}/batches`, batchPayload));
   if (!batchRes.success) return;
@@ -157,9 +187,9 @@ async function main() {
   console.log(`   Batch ID: ${batchId}`);
 
   // ┌─────────────────────────────────────────┐
-  // │  Phase 8: Quality Check (Acct 4)        │
+  // │  Phase 9: Quality Check (Acct 4)        │
   // └─────────────────────────────────────────┘
-  console.log("\n── Phase 8: Quality Check ──");
+  console.log("\n── Phase 9: Quality Check ──");
   const qcRes = log("QC Approve", await post(`${API}/batches/${batchId}/quality`, { status: true, privateKey: QC_PK }));
   if (!qcRes.success) return;
 

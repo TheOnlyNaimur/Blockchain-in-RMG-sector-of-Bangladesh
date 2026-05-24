@@ -14,6 +14,8 @@ import Settings from "./pages/Settings";
 import CompliancePanel from "./pages/CompliancePanel";
 import TraceabilityDashboard from "./pages/TraceabilityDashboard";
 import TransactionLedger from "./pages/TransactionLedger";
+import AuditLog from "./pages/AuditLog";
+import StakeholderPortal from "./pages/StakeholderPortal";
 
 export default function App() {
   return (
@@ -122,6 +124,12 @@ export default function App() {
 
         {/* Transaction Ledger — Completely Publicly Viewable */}
         <Route path="/ledger" element={<TransactionLedger />} />
+
+        {/* Audit Log — public on-chain trail */}
+        <Route path="/audit" element={<AuditLog />} />
+
+        {/* Stakeholder Portal — public search across IDs */}
+        <Route path="/stakeholder" element={<StakeholderPortal />} />
 
         {/* Catch-all: redirect to home */}
         <Route path="*" element={<Navigate to="/" replace />} />

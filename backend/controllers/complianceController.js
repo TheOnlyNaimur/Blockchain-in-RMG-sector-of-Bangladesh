@@ -3,6 +3,121 @@ const { getWriteContract, getReadContract } = require("../config/contract");
 const saveRecord = require("../utils/saveRecord");
 const { safeContractCall } = require("../utils/contractErrors");
 const Record = require("../models/Record");
+const { uploadToIPFS } = require("../utils/ipfs");
+const { Readable } = require("stream");
+
+/**
+ * POST /api/compliance/upload-certificate/:sellerAddress
+ * Certifier uploads a certificate file for a seller.
+ * File is uploaded to IPFS, hash is stored on-chain.
+ *
+ * Body:
+ *  - certType: 0|1|2|3 (FireSafety|BuildingSafety|LaborStandards|Environmental)
+ *  - expiresAt: Unix timestamp for certificate expiration
+ *  - privateKey: Certifier's private key (or backend key from env)
+ *
+ * File: multipart form-data with 'file' field (certificate PDF/image)
+ */
+async function uploadCertificate(req, res, next) {
+  try {
+    const { sellerAddress } = req.params;
+    const { certType, expiresAt } = req.body;
+    const privateKey = req.body.privateKey || process.env.BACKEND_PRIVATE_KEY;
+
+    const COMPLIANCE_TYPES = ["FireSafety", "BuildingSafety", "LaborStandards", "Environmental"];
+
+    if (!sellerAddress || certType === undefined || !expiresAt || !privateKey) {
+      return res.status(400).json({
+        success: false,
+        error: "sellerAddress, certType (0-3), expiresAt, and privateKey are required",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "No file provided. Use multipart/form-data with field 'file'",
+      });
+    }
+
+    if (certType < 0 || certType > 3) {
+      return res.status(400).json({
+        success: false,
+        error: "certType must be 0 (FireSafety), 1 (BuildingSafety), 2 (LaborStandards), or 3 (Environmental)",
+      });
+    }
+
+    if (!ethers.isAddress(sellerAddress)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid seller address",
+      });
+    }
+
+    const expiryTime = Number(expiresAt);
+    if (isNaN(expiryTime) || expiryTime <= Date.now() / 1000) {
+      return res.status(400).json({
+        success: false,
+        error: "expiresAt must be a valid future Unix timestamp",
+      });
+    }
+
+    // Upload file to IPFS
+    const stream = Readable.from(req.file.buffer);
+    stream.path = req.file.originalname;
+
+    const ipfsResult = await uploadToIPFS(stream, req.file.originalname, {
+      certType: COMPLIANCE_TYPES[certType],
+      sellerAddress,
+      uploadedAt: new Date().toISOString(),
+      expiresAt: new Date(expiryTime * 1000).toISOString(),
+    });
+
+    // Hash the IPFS CID to store on-chain
+    const certDocHash = ethers.keccak256(ethers.toUtf8Bytes(ipfsResult.cid));
+
+    // Call smart contract to issue compliance
+    const contract = getWriteContract(privateKey);
+    const result = await safeContractCall({
+      contract,
+      method: "issueCompliance",
+      args: [sellerAddress, certType, certDocHash, BigInt(expiryTime)],
+      context: "uploadCertificate",
+      res,
+    });
+    if (!result) return;
+
+    const { receipt } = result;
+
+    // Save to database
+    await saveRecord("COMPLIANCE_ISSUED", receipt, {
+      sellerAddress,
+      certType: COMPLIANCE_TYPES[certType],
+      certDocHash,
+      cid: ipfsResult.cid,
+      ipfsUrl: ipfsResult.ipfsUrl,
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      fileSize: req.file.size,
+      expiresAt: expiryTime,
+      issuedBy: receipt.from,
+    });
+
+    res.json({
+      success: true,
+      txHash: receipt.hash,
+      blockNumber: receipt.blockNumber,
+      cid: ipfsResult.cid,
+      ipfsUrl: ipfsResult.ipfsUrl,
+      certDocHash,
+      certType: COMPLIANCE_TYPES[certType],
+      expiresAt: expiryTime,
+      message: `${COMPLIANCE_TYPES[certType]} certificate uploaded and issued for seller ${sellerAddress}`,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
 
 /**
  * POST /api/compliance/issue
@@ -187,6 +302,7 @@ async function getComplianceEvents(req, res, next) {
 }
 
 module.exports = {
+  uploadCertificate,
   issueCompliance,
   revokeCompliance,
   getSellerComplianceStatus,

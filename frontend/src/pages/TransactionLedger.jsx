@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { ethers } from "ethers";
+import { formatPOID, formatBatchID, formatShipID } from "../utils/entityIds";
+
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
 export default function TransactionLedger() {
   const [records, setRecords] = useState([]);
@@ -18,8 +20,7 @@ export default function TransactionLedger() {
   const fetchRecords = async (pageNumber) => {
     setLoading(true);
     try {
-      const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
-      const res = await fetch(`${BASE_URL}/api/records?page=${pageNumber}&limit=${LIMIT}`);
+      const res = await fetch(`${API_BASE}/records?page=${pageNumber}&limit=${LIMIT}`);
       const json = await res.json();
       
       if (json.success) {
@@ -37,6 +38,17 @@ export default function TransactionLedger() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const getEntityIds = (record) => {
+    const rd = record.rawData || {};
+    const ids = [];
+    if (rd.poid || rd.orderId) ids.push(rd.poid || formatPOID(rd.orderId));
+    if (rd.batchId) ids.push(rd.batchIdFormatted || formatBatchID(rd.batchId));
+    if (rd.shipId) ids.push(rd.shipIdFormatted || formatShipID(rd.shipId));
+    if (rd.certId) ids.push(rd.certId);
+    if (rd.docId) ids.push(rd.docId);
+    return ids.length ? ids.join(" · ") : "—";
   };
 
   const truncate = (str, len = 12) => {
@@ -117,6 +129,7 @@ export default function TransactionLedger() {
                 <tr>
                   <th className="px-6 py-4 font-medium">Timestamp</th>
                   <th className="px-6 py-4 font-medium">Event Type</th>
+                  <th className="px-6 py-4 font-medium">Entity IDs</th>
                   <th className="px-6 py-4 font-medium">Transaction Hash (EVM)</th>
                   <th className="px-6 py-4 font-medium">Block Height</th>
                   <th className="px-6 py-4 font-medium">Payload Integrity Hash</th>
@@ -126,7 +139,7 @@ export default function TransactionLedger() {
               <tbody className="divide-y divide-slate-700">
                 {loading ? (
                   <tr>
-                    <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
+                    <td colSpan="7" className="px-6 py-12 text-center text-slate-400">
                       <div className="flex justify-center mb-4">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                       </div>
@@ -135,7 +148,7 @@ export default function TransactionLedger() {
                   </tr>
                 ) : records.length === 0 ? (
                   <tr>
-                    <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
+                    <td colSpan="7" className="px-6 py-12 text-center text-slate-400">
                       No blockchain transactions recorded yet.
                     </td>
                   </tr>
@@ -152,6 +165,9 @@ export default function TransactionLedger() {
                         <span className={`px-2.5 py-1 rounded-md text-xs font-medium border border-current ${getTypeColor(record.recordType)}`}>
                           {record.recordType}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap font-mono text-xs text-slate-400">
+                        {getEntityIds(record)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap font-mono text-xs">
                         {explorerUrl !== "#" ? (

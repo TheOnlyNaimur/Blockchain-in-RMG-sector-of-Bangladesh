@@ -1,74 +1,119 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import AppLayout from "../layouts/AppLayout";
 import RoleGuard from "../components/RoleGuard";
 import { generateTraceabilityPDF } from "../utils/pdfGenerator";
+import { auditApi } from "../api";
+import { parseEntityId } from "../utils/entityIds";
+import ShipmentMilestoneTracker from "../components/ShipmentMilestoneTracker";
 
 export default function TraceabilityDashboard() {
   const [searchId, setSearchId] = useState("");
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState([]);
   const [searched, setSearched] = useState(false);
+  const [shipIdForMilestones, setShipIdForMilestones] = useState(null);
 
   const getEventMeta = (type) => {
-    switch (type) {
-      case "ORDER_CREATED": return { title: "Supply Chain Initiated", icon: "flag", color: "bg-blue-500" };
-      case "BATCH_CREATED": return { title: "Production Batch Created", icon: "inventory_2", color: "bg-indigo-500" };
-      case "QC_APPROVED": return { title: "Quality Check Approved", icon: "fact_check", color: "bg-emerald-500" };
-      case "COMPLIANCE_ISSUED": return { title: "Compliance Verified", icon: "verified_user", color: "bg-green-500" };
-      case "ESCROW_DEPOSITED": return { title: "USDT Escrow Locked", icon: "lock", color: "bg-indigo-500" };
-      case "DOCS_UPLOADED": return { title: "Export Documents Anchored", icon: "description", color: "bg-purple-500" };
-      case "EXPORT_CLEARED": return { title: "Export Customs Cleared", icon: "flight_takeoff", color: "bg-teal-500" };
-      case "IMPORT_CLEARED": return { title: "Import Customs Cleared", icon: "flight_land", color: "bg-orange-500" };
-      case "DELIVERY_CONFIRMED": return { title: "Delivery Confirmed & Funds Released", icon: "check_circle", color: "bg-primary" };
-      case "ESCROW_RELEASED": return { title: "Escrow Force Released", icon: "gavel", color: "bg-red-500" };
-      default: return { title: "Blockchain Event Anchored", icon: "link", color: "bg-slate-500" };
-    }
+    const map = {
+      ORDER_CREATED: { title: "Supply Chain Initiated", icon: "flag", color: "bg-blue-500" },
+      ORDER_ACCEPTED: { title: "Order Accepted & Escrow Locked", icon: "lock", color: "bg-indigo-500" },
+      BATCH_CREATED: { title: "Production Batch Created", icon: "inventory_2", color: "bg-indigo-500" },
+      QUALITY_APPROVED: { title: "Quality Check Approved", icon: "fact_check", color: "bg-emerald-500" },
+      QUALITY_REJECTED: { title: "Quality Check Rejected", icon: "cancel", color: "bg-red-500" },
+      SHIPMENT_REQUESTED: { title: "Shipment Requested", icon: "local_shipping", color: "bg-purple-500" },
+      EXPORT_DOC_UPLOADED: { title: "Export Document Anchored", icon: "description", color: "bg-purple-500" },
+      EXPORT_CLEARED: { title: "Export Customs Cleared", icon: "flight_takeoff", color: "bg-teal-500" },
+      IMPORT_CLEARED: { title: "Import Customs Cleared", icon: "flight_land", color: "bg-orange-500" },
+      BUYER_CONFIRMED_DELIVERY: { title: "Delivery Confirmed", icon: "check_circle", color: "bg-primary" },
+      PAYMENT_RELEASED: { title: "Escrow Released", icon: "payments", color: "bg-green-500" },
+      COMPLIANCE_ISSUED: { title: "Compliance Verified", icon: "verified_user", color: "bg-green-500" },
+    };
+    return map[type] || { title: type || "Blockchain Event", icon: "link", color: "bg-slate-500" };
   };
+
+  const mapChainTimeline = (timeline) =>
+    timeline.map((e, i) => {
+      const meta = getEventMeta(e.eventType);
+      return {
+        id: `${e.txHash}-${i}`,
+        type: e.eventType,
+        title: meta.title,
+        desc: `Actor: ${e.actor} | Data hash: ${e.dataHash?.slice?.(0, 18) || "—"}...`,
+        time: new Date(e.timestamp * 1000).toLocaleString(),
+        txHash: e.txHash,
+        block: e.blockNumber,
+        icon: meta.icon,
+        color: meta.color,
+        ipfs: null,
+      };
+    });
 
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!searchId) return;
     setLoading(true);
     setSearched(true);
+    setShipIdForMilestones(null);
 
     try {
-      const response = await fetch(`http://localhost:3000/api/records?limit=1000`);
-      const payload = await response.json();
-      if (payload.success) {
-        // Find records where rawData string representation contains the search ID uniquely
-        const lowerSearch = searchId.toLowerCase();
-        const filteredRecords = payload.data.filter(r =>
-          JSON.stringify(r.rawData).toLowerCase().includes(lowerSearch) ||
-          r.txHash.toLowerCase().includes(lowerSearch)
-        ).reverse(); // Sort oldest to newest for timeline
+      const parsed = parseEntityId(searchId);
 
-        const mappedEvents = filteredRecords.map((r, i) => {
-          const meta = getEventMeta(r.recordType);
-          return {
-            id: r.id || i,
-            type: r.recordType,
-            title: meta.title,
-            desc: JSON.stringify(r.rawData).substring(0, 150) + "...",
-            time: new Date(r.createdAt).toLocaleString(),
-            txHash: r.txHash,
-            block: r.blockNumber || "Pending",
-            icon: meta.icon,
-            color: meta.color,
-            ipfs: r.rawData.docsHash || r.rawData.certDocHash || null,
-          };
-        });
-
-        setEvents(mappedEvents);
+      // On-chain timeline for PO or SHIP
+      if (parsed?.type === "PO") {
+        const res = await auditApi.getOrderTimeline(parsed.rawId);
+        if (res.success && res.timeline?.length) {
+          setEvents(mapChainTimeline(res.timeline));
+          if (res.related?.shipIds?.[0]) setShipIdForMilestones(res.related.shipIds[0]);
+          return;
+        }
       }
+
+      if (parsed?.type === "SHIP") {
+        const res = await auditApi.getShipmentTimeline(parsed.rawId);
+        if (res.success && res.timeline?.length) {
+          setEvents(mapChainTimeline(res.timeline));
+          setShipIdForMilestones(parsed.rawId);
+          return;
+        }
+      }
+
+      // Fallback: MongoDB unified lookup
+      const payload = await auditApi.unifiedLookup(searchId);
+      if (!payload?.success) {
+        setEvents([]);
+        return;
+      }
+
+      const records = payload.records || [];
+      const mappedEvents = records.map((r, i) => {
+        const meta = getEventMeta(r.recordType);
+        return {
+          id: r.id || i,
+          type: r.recordType,
+          title: meta.title,
+          desc: JSON.stringify(r.rawData).substring(0, 150) + "...",
+          time: new Date(r.createdAt).toLocaleString(),
+          txHash: r.txHash,
+          block: r.blockNumber || "Pending",
+          icon: meta.icon,
+          color: meta.color,
+          ipfs: r.rawData?.ipfsCid || r.rawData?.cid || r.rawData?.certDocHash || null,
+        };
+      });
+
+      setEvents(mappedEvents);
+      const shipFromRecord = records.find((r) => r.rawData?.shipId)?.rawData?.shipId;
+      if (shipFromRecord) setShipIdForMilestones(shipFromRecord);
     } catch (error) {
       console.error("Failed to trace search query:", error);
+      setEvents([]);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <RoleGuard requiredRoles={["buyer", "seller", "freightForwarder", "qualitychecker", "exportCustoms", "importCustoms", "complianceChecker", "certifier"]}>
+    <RoleGuard requiredRoles={["buyer", "seller", "freightForwarder", "qualityChecker", "exportCustoms", "importCustoms", "complianceChecker", "certifier"]}>
       <AppLayout title="Traceability & Audit">
         <div className="flex flex-col mb-10 border-b border-border-dark pb-8">
           <div className="flex items-center gap-2 mb-3">
@@ -102,7 +147,7 @@ export default function TraceabilityDashboard() {
                   type="text"
                   value={searchId}
                   onChange={(e) => setSearchId(e.target.value)}
-                  placeholder="e.g. ORD-84920 or SHIP-2291"
+                  placeholder="e.g. PO-000001, SHIP-000001, TX hash, CERT-*, DOC-*"
                   className="w-full bg-background-dark border border-border-dark text-white text-lg rounded-xl focus:ring-2 focus:ring-primary focus:border-primary py-4 pl-12 pr-4 font-mono transition-all"
                 />
               </div>
@@ -132,7 +177,11 @@ export default function TraceabilityDashboard() {
         </div>
 
         {searched && !loading && events.length > 0 && (
-          <div className="max-w-4xl bg-surface-dark border border-border-dark rounded-2xl shadow-2xl p-8 relative overflow-hidden">
+          <div className="max-w-4xl space-y-6">
+            {shipIdForMilestones && (
+              <ShipmentMilestoneTracker shipId={shipIdForMilestones} />
+            )}
+          <div className="bg-surface-dark border border-border-dark rounded-2xl shadow-2xl p-8 relative overflow-hidden">
             {/* Background design elements */}
             <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
@@ -229,6 +278,7 @@ export default function TraceabilityDashboard() {
                 Download Audit Report (PDF)
               </button>
             </div>
+          </div>
           </div>
         )}
       </AppLayout>

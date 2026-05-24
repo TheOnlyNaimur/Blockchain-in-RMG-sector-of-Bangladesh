@@ -7,7 +7,7 @@ import Toast from "../components/ui/Toast";
 import { useUser } from "../contexts/UserContext";
 import { useWallet } from "../hooks/useWallet";
 import { useAccount } from "wagmi";
-import { useOrderAcceptance, useOrderPayment, useOrdersFetching } from "../hooks";
+import { useOrderAcceptance, useOrderPayment, useOrdersFetching, usePurchaseRequestCreation, usePurchaseRequestsList } from "../hooks";
 import { ethers } from "ethers";
 import { CONTRACT_CONFIG } from "../config/contracts";
 import { generateOrderPDF } from "../utils/pdfGenerator";
@@ -15,6 +15,7 @@ import { generateOrderPDF } from "../utils/pdfGenerator";
 export default function BuyerDashboard() {
   const { userProfile } = useUser();
   const { isConnected, createSignedPayload } = useWallet();
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
   const {
     execute: acceptOrder,
     loading: acceptingOrder,
@@ -34,6 +35,22 @@ export default function BuyerDashboard() {
   const [toast, setToast] = useState(null);
 
   const { address: walletAddress } = useAccount();
+
+  const {
+    execute: createPurchaseRequest,
+    loading: creatingPurchaseRequest,
+  } = usePurchaseRequestCreation();
+
+  const buyerAddr = (userProfile?.address || walletAddress || "").toLowerCase();
+  const { data: purchaseRequests = [], refetch: refetchPurchaseRequests } = usePurchaseRequestsList({
+    buyerAddress: buyerAddr || undefined,
+  });
+
+  const [requestSellerAddress, setRequestSellerAddress] = useState("");
+  const [requestDetails, setRequestDetails] = useState("");
+  const [requestAmount, setRequestAmount] = useState("");
+  const [requestHsCode, setRequestHsCode] = useState("");
+  const [requestDestination, setRequestDestination] = useState("");
 
   useEffect(() => {
     const addr = userProfile?.address || walletAddress;
@@ -157,7 +174,7 @@ export default function BuyerDashboard() {
       const payloadData = { action: "confirm", orderId: numericalOrderId };
       const { signature, userAddress } = await createSignedPayload(payloadData);
 
-      const response = await fetch(`http://localhost:3000/api/orders/${numericalOrderId}/confirm-delivery`, {
+      const response = await fetch(`${API_BASE}/orders/${numericalOrderId}/confirm-delivery`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -198,6 +215,47 @@ export default function BuyerDashboard() {
   const handleReviewSubmit = async () => {
     if (selectedOrder?.statusColor === "blue") {
       await handlePayOrder();
+    }
+  };
+
+  // keep requests fresh when opening the modal or after order changes
+  useEffect(() => {
+    if (showCreateRequest) {
+      refetchPurchaseRequests();
+    }
+  }, [showCreateRequest, refetchPurchaseRequests]);
+
+  const handleSubmitPurchaseRequest = async () => {
+    if (!requestSellerAddress || !requestDetails || !requestAmount) {
+      setToast({ message: "Seller address, description, and amount are required.", type: "error", icon: "error" });
+      return;
+    }
+    try {
+      const res = await createPurchaseRequest({
+        sellerAddress: requestSellerAddress,
+        details: requestDetails,
+        amount: requestAmount,
+        hsCode: requestHsCode || undefined,
+        destination: requestDestination || undefined,
+      });
+      setToast({
+        message: `Request submitted: ${res.requestDisplayId || res.requestId}`,
+        type: "success",
+        icon: "check_circle",
+      });
+      refetchPurchaseRequests();
+      setShowCreateRequest(false);
+      setRequestSellerAddress("");
+      setRequestDetails("");
+      setRequestAmount("");
+      setRequestHsCode("");
+      setRequestDestination("");
+    } catch (err) {
+      setToast({
+        message: err?.message || "Failed to submit request",
+        type: "error",
+        icon: "error",
+      });
     }
   };
 
@@ -281,6 +339,68 @@ export default function BuyerDashboard() {
             change="Fund Released"
             icon="check_circle"
           />
+        </div>
+
+        {/* Purchase Requests */}
+        <div className="rounded-xl border border-border-dark bg-surface-dark overflow-hidden shadow-xl mb-8">
+          <div className="p-5 border-b border-border-dark flex items-center justify-between">
+            <div>
+              <h2 className="text-white font-black tracking-tight text-lg">My Purchase Requests</h2>
+              <p className="text-text-secondary text-sm">
+                Requests you initiated. The seller must create the on-chain order before you can escrow.
+              </p>
+            </div>
+            <button
+              onClick={() => refetchPurchaseRequests()}
+              className="px-3 py-1.5 text-xs font-bold text-white border border-border-dark rounded-lg hover:bg-border-dark transition-colors"
+            >
+              Refresh
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-border-dark/50 border-b border-border-dark">
+                  <th className="px-6 py-4 text-xs font-semibold text-text-secondary uppercase tracking-wider">Request ID</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-text-secondary uppercase tracking-wider">Seller</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-text-secondary uppercase tracking-wider">Amount</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-text-secondary uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-xs font-semibold text-text-secondary uppercase tracking-wider">Linked PO</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border-dark">
+                {(purchaseRequests || []).length === 0 ? (
+                  <tr>
+                    <td colSpan="5" className="px-6 py-8 text-center text-text-secondary">
+                      No purchase requests yet.
+                    </td>
+                  </tr>
+                ) : (
+                  purchaseRequests.map((r) => (
+                    <tr key={r.requestId} className="hover:bg-border-dark/30 transition-colors">
+                      <td className="px-6 py-4 text-sm text-white font-mono">
+                        {r.requestDisplayId || `REQ-${r.requestId}`}
+                      </td>
+                      <td className="px-6 py-4 text-xs font-mono text-text-secondary">
+                        {r.sellerAddress}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-white font-mono">
+                        {r.amount} USDT
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="px-2.5 py-1 rounded-md text-xs font-bold border border-border-dark text-text-secondary">
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-white font-mono">
+                        {r.poid || (r.orderId ? `PO-${r.orderId}` : "—")}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Orders Table */}
@@ -816,6 +936,8 @@ export default function BuyerDashboard() {
                     <input
                       className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3 pl-10 font-mono placeholder-[#5c7263]"
                       placeholder="0x..."
+                      value={requestSellerAddress}
+                      onChange={(e) => setRequestSellerAddress(e.target.value)}
                     />
                   </div>
                 </div>
@@ -828,6 +950,8 @@ export default function BuyerDashboard() {
                     className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3 placeholder-[#5c7263] resize-none"
                     placeholder="Describe the products or services you want to purchase..."
                     rows="3"
+                    value={requestDetails}
+                    onChange={(e) => setRequestDetails(e.target.value)}
                   ></textarea>
                 </div>
 
@@ -850,6 +974,8 @@ export default function BuyerDashboard() {
                       className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3 placeholder-[#5c7263]"
                       placeholder="0.00"
                       type="number"
+                      value={requestAmount}
+                      onChange={(e) => setRequestAmount(e.target.value)}
                     />
                   </div>
                 </div>
@@ -857,22 +983,24 @@ export default function BuyerDashboard() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium text-white">
-                      Delivery Terms
+                      HS Code
                     </label>
-                    <select className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3">
-                      <option>FOB (Free on Board)</option>
-                      <option>CIF (Cost, Insurance & Freight)</option>
-                      <option>DDP (Delivered Duty Paid)</option>
-                      <option>EXW (Ex Works)</option>
-                    </select>
+                    <input
+                      className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3 placeholder-[#5c7263] font-mono"
+                      placeholder="e.g. 6109.10"
+                      value={requestHsCode}
+                      onChange={(e) => setRequestHsCode(e.target.value)}
+                    />
                   </div>
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium text-white">
-                      Delivery Deadline
+                      Destination Country
                     </label>
                     <input
-                      className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3 [color-scheme:dark]"
-                      type="date"
+                      className="w-full bg-background-dark border border-border-dark text-white text-sm rounded-lg focus:ring-primary focus:border-primary p-3 placeholder-[#5c7263]"
+                      placeholder="e.g. United States"
+                      value={requestDestination}
+                      onChange={(e) => setRequestDestination(e.target.value)}
                     />
                   </div>
                 </div>
@@ -919,11 +1047,15 @@ export default function BuyerDashboard() {
                 >
                   Cancel
                 </button>
-                <button className="px-5 py-2.5 text-sm font-bold text-background-dark bg-primary hover:bg-primary-hover rounded-lg transition-colors flex items-center gap-2">
+                <button
+                  onClick={handleSubmitPurchaseRequest}
+                  disabled={creatingPurchaseRequest}
+                  className="px-5 py-2.5 text-sm font-bold text-background-dark bg-primary hover:bg-primary-hover rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
                   <span className="material-symbols-outlined text-[18px]">
                     send
                   </span>
-                  Submit Request
+                  {creatingPurchaseRequest ? "Submitting..." : "Submit Request"}
                 </button>
               </div>
             </div>

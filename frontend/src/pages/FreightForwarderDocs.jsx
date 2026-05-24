@@ -4,6 +4,7 @@ import StatCard from "../components/ui/StatCard";
 import StatusBadge from "../components/ui/StatusBadge";
 import RoleGuard from "../components/RoleGuard";
 import { useDocumentUpload, useShipmentEvents } from "../hooks";
+import ShipmentMilestoneTracker from "../components/ShipmentMilestoneTracker";
 
 export default function FreightForwarderDocs() {
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -45,7 +46,7 @@ export default function FreightForwarderDocs() {
       formData.append("docType", docType);
 
       const response = await fetch(
-        `http://localhost:3000/api/shipments/${uploadBatch.id}/doc`,
+        `${(import.meta.env.VITE_API_URL || "http://localhost:3000/api")}/shipments/${uploadBatch.id}/doc`,
         {
           method: "POST",
           body: formData,
@@ -281,6 +282,11 @@ export default function FreightForwarderDocs() {
 
           {/* Side Panel */}
           <div className="xl:col-span-1 flex flex-col gap-6">
+            {(uploadBatch || shipments[0]) && (
+              <ShipmentMilestoneTracker
+                shipId={(uploadBatch || shipments[0]).id || (uploadBatch || shipments[0]).shipId}
+              />
+            )}
             <div className="rounded-xl border border-border-dark bg-surface-dark p-6">
               <h3 className="text-white text-lg font-bold mb-1">
                 Document Verification

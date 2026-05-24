@@ -5,6 +5,7 @@ const cors = require("cors");
 const routes = require("./routes/index");
 const errorHandler = require("./middleware/errorHandler");
 const connectDB = require("./config/db");
+const { checkAccessRevocation } = require("./middleware/accessControl");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,7 +24,7 @@ app.get("/health", (req, res) => {
 });
 
 // ── API Routes ────────────────────────────────────────────────────────────────
-app.use("/api", routes);
+app.use("/api", checkAccessRevocation, routes);
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((req, res) => {

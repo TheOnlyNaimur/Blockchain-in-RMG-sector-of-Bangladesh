@@ -4,8 +4,10 @@ import RoleGuard from "../components/RoleGuard";
 import StatusBadge from "../components/ui/StatusBadge";
 import StatCard from "../components/ui/StatCard";
 import { useExportVerify, useImportVerify, useShipmentEvents } from "../hooks";
+import ShipmentMilestoneTracker from "../components/ShipmentMilestoneTracker";
 
 export default function CustomsClearance() {
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
   const { data: allShipments = [], refetch } = useShipmentEvents();
   const [exportQueue, setExportQueue] = useState([]);
   const [importQueue, setImportQueue] = useState([]);
@@ -118,7 +120,7 @@ export default function CustomsClearance() {
       const orderId = item.orderId;
       const shipId = item.id;
       
-      const response = await fetch(`http://localhost:3000/api/orders/${orderId}/force-release`, {
+      const response = await fetch(`${API_BASE}/orders/${orderId}/force-release`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -239,6 +241,15 @@ export default function CustomsClearance() {
                 {successMessage}
               </p>
             </div>
+          </div>
+        )}
+
+        {/* On-chain shipment milestones */}
+        {(selectedExport || exportQueue[0]) && (
+          <div className="mb-10">
+            <ShipmentMilestoneTracker
+              shipId={(selectedExport || exportQueue[0]).id || (selectedExport || exportQueue[0]).shipId}
+            />
           </div>
         )}
 

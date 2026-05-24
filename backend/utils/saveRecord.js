@@ -1,5 +1,6 @@
 const Record = require("../models/Record");
 const { hashData } = require("./crypto");
+const { enrichRawDataWithIds } = require("./entityIds");
 
 /**
  * Persist a blockchain event record to MongoDB.
@@ -15,7 +16,8 @@ const { hashData } = require("./crypto");
  *  - contractFeedback                 → key fields from the on-chain receipt
  */
 async function saveRecord(recordType, receipt, data) {
-  const dataHash = hashData(data);
+  const enrichedData = enrichRawDataWithIds(data);
+  const dataHash = hashData(enrichedData);
 
   const contractFeedback = {
     txHash: receipt.hash,
@@ -32,7 +34,7 @@ async function saveRecord(recordType, receipt, data) {
     txHash: receipt.hash,
     blockNumber: receipt.blockNumber,
     dataHash,
-    rawData: data,
+    rawData: enrichedData,
     contractFeedback,
   });
 }

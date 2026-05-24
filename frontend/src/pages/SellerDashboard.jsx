@@ -8,9 +8,9 @@ import { useWallet } from "../hooks/useWallet";
 import { useAccount } from "wagmi";
 import { useBatchCreation } from "../hooks/useBatches";
 import { useShipmentRequest } from "../hooks/useShipments";
-import { useOrdersFetching, useOrderCreation } from "../hooks";
+import { useOrdersFetching, useOrderCreation, usePurchaseRequestsList, usePurchaseRequestFulfill } from "../hooks";
 import { ROLES } from "../config/contracts";
-import { generateOrderPDF } from "../utils/pdfGenerator";
+import { generateOrderPDF, generateCertificatePDF } from "../utils/pdfGenerator";
 
 export default function SellerDashboard() {
   const { userProfile } = useUser();
@@ -27,6 +27,7 @@ export default function SellerDashboard() {
   // Compliance status
   const [isCompliant, setIsCompliant] = useState(null); // null=loading, true/false=result
   const [complianceDetails, setComplianceDetails] = useState(null);
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
   
   const [orders, setOrders] = useState([]);
   const [showCreateBatch, setShowCreateBatch] = useState(false);
@@ -46,12 +47,18 @@ export default function SellerDashboard() {
   const [amount, setAmount] = useState("");
 
   const { address: walletAddress } = useAccount();
+  const sellerAddr = (userProfile?.address || walletAddress || "").toLowerCase();
+  const { data: incomingRequests = [], refetch: refetchIncomingRequests } = usePurchaseRequestsList({
+    sellerAddress: sellerAddr || undefined,
+    status: "pending",
+  });
+  const { execute: fulfillPurchaseRequest } = usePurchaseRequestFulfill();
 
   // Fetch compliance status on mount
   useEffect(() => {
     const addr = userProfile?.address || walletAddress;
     if (addr) {
-      fetch(`http://localhost:3000/api/compliance/${addr}`)
+      fetch(`${API_BASE}/compliance/${addr}`)
         .then(res => res.json())
         .then(data => {
           if (data.success) {
@@ -96,6 +103,43 @@ export default function SellerDashboard() {
     } catch (err) {
       // Show backend compliance error or generic message
       const errMsg = err?.message || err?.error || "Failed to create order";
+      setToast({ message: errMsg, type: "error", icon: "error" });
+    }
+  };
+
+  const handleCreateOrderFromRequest = async (reqItem) => {
+    if (isCompliant === false) {
+      setToast({
+        message: "You must hold all 4 compliance certificates before creating orders.",
+        type: "error",
+        icon: "block",
+      });
+      return;
+    }
+    try {
+      const result = await createOrder({
+        buyerAddress: reqItem.buyerAddress,
+        details: reqItem.details,
+        amount: reqItem.amount,
+        hsCode: reqItem.hsCode || "",
+        destination: reqItem.destination || "",
+      });
+
+      // Link request -> orderId for buyer visibility
+      const addr = userProfile?.address || walletAddress;
+      if (addr) {
+        await fulfillPurchaseRequest({ requestId: reqItem.requestId, orderId: result.orderId, sellerAddress: addr });
+      }
+
+      setToast({
+        message: `Order created from request. Tx: ${result.txHash.slice(0, 10)}... PO: ${result.orderId}`,
+        type: "success",
+        icon: "check_circle",
+      });
+      refetchOrders();
+      refetchIncomingRequests();
+    } catch (err) {
+      const errMsg = err?.message || err?.error || "Failed to create order from request";
       setToast({ message: errMsg, type: "error", icon: "error" });
     }
   };
@@ -258,6 +302,63 @@ export default function SellerDashboard() {
               </button>
             </div>
           </div>
+        </section>
+
+        {/* Incoming Purchase Requests */}
+        <section className="mb-8 bg-surface-dark border border-border-dark rounded-xl p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-white text-xl font-black tracking-tight">Incoming Purchase Requests</h2>
+              <p className="text-text-secondary text-sm">
+                Buyers can request a PO. You create the on-chain order, then the buyer escrows USDT.
+              </p>
+            </div>
+            <button
+              onClick={() => refetchIncomingRequests()}
+              className="px-3 py-2 rounded-lg border border-border-dark text-white text-xs font-bold hover:bg-border-dark transition-colors"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {(incomingRequests || []).length === 0 ? (
+            <div className="text-text-secondary text-sm">No pending requests.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-border-dark/50 border-b border-border-dark">
+                    <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider">Request</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider">Buyer</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider">Amount</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider">Details</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-text-secondary uppercase tracking-wider text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-dark">
+                  {incomingRequests.map((r) => (
+                    <tr key={r.requestId} className="hover:bg-border-dark/30 transition-colors">
+                      <td className="px-4 py-3 text-sm text-white font-mono">
+                        {r.requestDisplayId || `REQ-${r.requestId}`}
+                      </td>
+                      <td className="px-4 py-3 text-xs font-mono text-text-secondary">{r.buyerAddress}</td>
+                      <td className="px-4 py-3 text-sm text-white font-mono">{r.amount} USDT</td>
+                      <td className="px-4 py-3 text-xs text-text-secondary">{r.details}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => handleCreateOrderFromRequest(r)}
+                          disabled={creatingOrder}
+                          className="px-3 py-2 rounded-lg bg-primary text-background-dark text-xs font-bold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                        >
+                          {creatingOrder ? "Creating..." : "Create PO"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         {/* Compliance Warning */}
@@ -833,8 +934,13 @@ export default function SellerDashboard() {
                   </span>{" "}
                   View on Etherscan
                 </button>
-                <button 
-                  onClick={() => generateOrderPDF(trackingOrder)}
+                <button
+                  onClick={() =>
+                    generateCertificatePDF({
+                      seller: sellerAddr || userProfile?.address || "N/A",
+                      certificateId: "Seller Registration",
+                    })
+                  }
                   className="flex-1 px-4 py-2.5 bg-primary/10 text-primary border border-primary/20 rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors flex items-center justify-center gap-2"
                 >
                   <span className="material-symbols-outlined text-[18px]">

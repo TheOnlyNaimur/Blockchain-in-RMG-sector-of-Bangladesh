@@ -8,6 +8,8 @@ const recordRoutes = require("./record.routes");
 const ipfsRoutes = require("./ipfs.routes");
 const complianceRoutes = require("./compliance.routes");
 const auditRoutes = require("./audit.routes");
+const customsRoutes = require("./customs.routes");
+const accessRoutes = require("./access.routes");
 
 const router = express.Router();
 
@@ -20,5 +22,7 @@ router.use("/records", recordRoutes);
 router.use("/ipfs", ipfsRoutes);
 router.use("/compliance", complianceRoutes);
 router.use("/audit", auditRoutes);
+router.use("/customs", customsRoutes);
+router.use("/access", accessRoutes);
 
 module.exports = router;

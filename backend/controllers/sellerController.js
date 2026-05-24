@@ -6,6 +6,9 @@ const {
 const saveRecord = require("../utils/saveRecord");
 const { safeContractCall } = require("../utils/contractErrors");
 const { ethers } = require("ethers");
+const Record = require("../models/Record");
+const { uploadToIPFS } = require("../utils/ipfs");
+const { Readable } = require("stream");
 
 /**
  * POST /api/sellers/register
@@ -29,7 +32,6 @@ async function registerSeller(req, res, next) {
       });
     }
 
-    // Verify signature
     const message = JSON.stringify(data);
     let recoveredAddress;
     try {
@@ -42,7 +44,6 @@ async function registerSeller(req, res, next) {
       return res.status(401).json({ success: false, error: "Signature does not match user address" });
     }
 
-    // Validate numeric fields before touching the chain
     const tinNum = Number(tinid);
     const contactNum = Number(number);
     if (!Number.isInteger(tinNum) || tinNum <= 0) {
@@ -66,7 +67,7 @@ async function registerSeller(req, res, next) {
       context: "registerSeller",
       res,
     });
-    if (!result) return; // error already sent
+    if (!result) return;
 
     const { receipt } = result;
 
@@ -92,6 +93,7 @@ async function registerSeller(req, res, next) {
 
 /**
  * POST /api/sellers/approve
+ * Certifier approves or rejects seller KYC on-chain (no certificate upload).
  */
 async function approveSeller(req, res, next) {
   try {
@@ -99,7 +101,14 @@ async function approveSeller(req, res, next) {
     if (!sellerAddress || assign === undefined) {
       return res.status(400).json({
         success: false,
-        error: "sellerAddress and assign (1=approve, 2=reject) are required",
+        error: "sellerAddress and assign (1|2) are required",
+      });
+    }
+
+    if (Number(assign) !== 1 && Number(assign) !== 2) {
+      return res.status(400).json({
+        success: false,
+        error: "assign must be 1 (approve) or 2 (reject)",
       });
     }
 
@@ -112,7 +121,7 @@ async function approveSeller(req, res, next) {
     const result = await safeContractCall({
       contract,
       method: "approveseller",
-      args: [sellerAddress, BigInt(assign)],
+      args: [sellerAddress, BigInt(Number(assign))],
       context: "approveSeller",
       res,
     });
@@ -122,7 +131,7 @@ async function approveSeller(req, res, next) {
     const statusLabel = Number(assign) === 1 ? "approved" : "rejected";
 
     await saveRecord("SELLER_APPROVED", receipt, {
-      certifierAddress: process.env.CERTIFIER_ADDRESS,
+      certifierAddress: receipt.from,
       sellerAddress,
       decision: statusLabel,
     });
@@ -131,7 +140,247 @@ async function approveSeller(req, res, next) {
       success: true,
       txHash: receipt.hash,
       blockNumber: receipt.blockNumber,
-      message: `Seller ${statusLabel} successfully.`,
+      decision: statusLabel,
+      message: Number(assign) === 1 ? "Seller approved successfully." : "Seller rejected successfully.",
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/sellers/approve-business
+ * Upload seller business certificate to IPFS and record off-chain approval.
+ */
+async function approveSellerBusiness(req, res, next) {
+  try {
+    const { sellerAddress } = req.body;
+    const privateKey = req.body.privateKey || process.env.BUSINESS_CERTIFIER_PRIVATE_KEY;
+
+    if (!sellerAddress) {
+      return res.status(400).json({ success: false, error: "sellerAddress is required" });
+    }
+
+    if (!privateKey) {
+      return res.status(400).json({
+        success: false,
+        error: "privateKey is required or BUSINESS_CERTIFIER_PRIVATE_KEY not configured",
+      });
+    }
+
+    if (!ethers.isAddress(sellerAddress)) {
+      return res.status(400).json({ success: false, error: "Invalid seller address" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: "At least one seller certificate file is required. Use multipart/form-data with field 'file'",
+      });
+    }
+
+    const stream = Readable.from(req.file.buffer);
+    stream.path = req.file.originalname;
+
+    const ipfsResult = await uploadToIPFS(stream, req.file.originalname, {
+      certType: "SellerBusinessDocument",
+      sellerAddress,
+      uploadedAt: new Date().toISOString(),
+    });
+
+    const docHash = ethers.keccak256(ethers.toUtf8Bytes(ipfsResult.cid));
+
+    await new Record({
+      recordType: "SELLER_BUSINESS_CERTIFICATE",
+      txHash: ipfsResult.cid,
+      blockNumber: 0,
+      dataHash: docHash,
+      rawData: {
+        sellerAddress,
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        fileSize: req.file.size,
+        cid: ipfsResult.cid,
+        docHash,
+        ipfsUrl: ipfsResult.ipfsUrl,
+        uploadedBy: new ethers.Wallet(privateKey).address,
+        uploadedAt: new Date().toISOString(),
+      },
+      contractFeedback: {},
+    }).save();
+
+    await new Record({
+      recordType: "SELLER_BUSINESS_APPROVED",
+      txHash: `approved_${Date.now()}`,
+      blockNumber: 0,
+      dataHash: ethers.keccak256(ethers.toUtf8Bytes(sellerAddress)),
+      rawData: {
+        sellerAddress,
+        approvedBy: new ethers.Wallet(privateKey).address,
+        businessCertificatesCount: 1,
+        timestamp: new Date().toISOString(),
+      },
+      contractFeedback: {},
+    }).save();
+
+    res.json({
+      success: true,
+      sellerAddress,
+      approvalType: "business",
+      message: "Seller business approved. Certificate uploaded to IPFS.",
+      certificatesUploaded: [
+        {
+          fileName: req.file.originalname,
+          mimeType: req.file.mimetype,
+          size: req.file.size,
+          cid: ipfsResult.cid,
+          docHash,
+          ipfsUrl: ipfsResult.ipfsUrl,
+        },
+      ],
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/sellers/approve-compliance
+ * Certifier approves seller on-chain and issues 4 compliance certificates when assign=1.
+ */
+async function approveSellerCompliance(req, res, next) {
+  try {
+    const { sellerAddress, assign, expiresAt } = req.body;
+
+    if (!sellerAddress || assign === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: "sellerAddress and assign (1=approve, 2=reject) are required",
+      });
+    }
+
+    if (Number(assign) !== 1 && Number(assign) !== 2) {
+      return res.status(400).json({
+        success: false,
+        error: "assign must be 1 (approve) or 2 (reject)",
+      });
+    }
+
+    const privateKey = req.body.privateKey || process.env.COMPLIANCE_CHECKER_PRIVATE_KEY || process.env.CERTIFIER_PRIVATE_KEY;
+    if (!privateKey) {
+      return res.status(400).json({ success: false, error: "privateKey is required or backend not configured" });
+    }
+
+    if (Number(assign) === 1) {
+      if (!expiresAt) {
+        return res.status(400).json({ success: false, error: "expiresAt is required when approving" });
+      }
+      const COMPLIANCE_FILE_KEYS = ["file_0", "file_1", "file_2", "file_3"];
+      for (const fileKey of COMPLIANCE_FILE_KEYS) {
+        if (!req.files || !req.files[fileKey]) {
+          return res.status(400).json({
+            success: false,
+            error: `Missing required certificate file: ${fileKey}`,
+          });
+        }
+      }
+    }
+
+    const contract = getRoleContract(privateKey);
+    const result = await safeContractCall({
+      contract,
+      method: "approveseller",
+      args: [sellerAddress, BigInt(Number(assign))],
+      context: "approveSellerCompliance",
+      res,
+    });
+    if (!result) return;
+
+    const { receipt } = result;
+    const statusLabel = Number(assign) === 1 ? "approved" : "rejected";
+
+    await saveRecord("SELLER_APPROVED", receipt, {
+      certifierAddress: receipt.from,
+      sellerAddress,
+      decision: statusLabel,
+      approvalType: "compliance",
+    });
+
+    let certificateResults = [];
+    if (Number(assign) === 1) {
+      const COMPLIANCE_TYPES = ["FireSafety", "BuildingSafety", "LaborStandards", "Environmental"];
+      const expiryTime = Number(expiresAt);
+      if (isNaN(expiryTime) || expiryTime <= Date.now() / 1000) {
+        return res.status(400).json({
+          success: false,
+          error: "expiresAt must be a valid future Unix timestamp",
+        });
+      }
+
+      const complianceContract = getWriteContract(
+        process.env.COMPLIANCE_CHECKER_PRIVATE_KEY || privateKey
+      );
+
+      for (let i = 0; i < 4; i++) {
+        const fileKey = `file_${i}`;
+        const fileObj = Array.isArray(req.files[fileKey]) ? req.files[fileKey][0] : req.files[fileKey];
+        const buffer = fileObj.buffer || fileObj.data;
+        const name = fileObj.originalname || fileObj.name;
+
+        const stream = Readable.from(buffer);
+        stream.path = name;
+
+        const ipfsResult = await uploadToIPFS(stream, name, {
+          certType: COMPLIANCE_TYPES[i],
+          sellerAddress,
+          uploadedAt: new Date().toISOString(),
+          expiresAt: new Date(expiryTime * 1000).toISOString(),
+        });
+
+        const certDocHash = ethers.keccak256(ethers.toUtf8Bytes(ipfsResult.cid));
+
+        const certResult = await safeContractCall({
+          contract: complianceContract,
+          method: "issueCompliance",
+          args: [sellerAddress, i, certDocHash, BigInt(expiryTime)],
+          context: `issueCertificate_${i}`,
+          res,
+        });
+
+        if (!certResult) return;
+
+        await saveRecord("COMPLIANCE_ISSUED", certResult.receipt, {
+          sellerAddress,
+          certType: COMPLIANCE_TYPES[i],
+          certTypeIndex: i,
+          certDocHash,
+          cid: ipfsResult.cid,
+          ipfsUrl: ipfsResult.ipfsUrl,
+          fileName: name,
+          expiresAt: expiryTime,
+          issuedBy: certResult.receipt.from,
+        });
+
+        certificateResults.push({
+          certType: COMPLIANCE_TYPES[i],
+          success: true,
+          cid: ipfsResult.cid,
+          certDocHash,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      approvalType: "compliance",
+      txHash: receipt.hash,
+      blockNumber: receipt.blockNumber,
+      decision: statusLabel,
+      certificatesUploaded: certificateResults.length,
+      message:
+        Number(assign) === 1
+          ? `Seller approved with ${certificateResults.length}/4 compliance certificates issued.`
+          : "Seller rejected successfully.",
     });
   } catch (err) {
     next(err);
@@ -143,7 +392,6 @@ async function approveSeller(req, res, next) {
  */
 async function getSellerEvents(req, res, next) {
   try {
-    const Record = require("../models/Record");
     const records = await Record.find({
       recordType: { $in: ["SELLER_REGISTERED", "SELLER_APPROVED"] },
     }).sort({ createdAt: 1 });
@@ -180,4 +428,10 @@ async function getSellerEvents(req, res, next) {
   }
 }
 
-module.exports = { registerSeller, approveSeller, getSellerEvents };
+module.exports = {
+  registerSeller,
+  approveSeller,
+  approveSellerBusiness,
+  approveSellerCompliance,
+  getSellerEvents,
+};

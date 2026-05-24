@@ -118,6 +118,13 @@ export default function ConnectWallet() {
                     : "Connect Wallet"}
               </span>
             </button>
+            <Link
+              to="/stakeholder"
+              className="hidden sm:flex items-center justify-center gap-2 rounded-lg border border-border-dark bg-surface-dark px-3 py-2 text-xs font-bold text-slate-200 hover:bg-border-dark transition-colors"
+            >
+              <span className="material-symbols-outlined text-[18px]">hub</span>
+              Stakeholder View
+            </Link>
           </div>
         </div>
       </header>

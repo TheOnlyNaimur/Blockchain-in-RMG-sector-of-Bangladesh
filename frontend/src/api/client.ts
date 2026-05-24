@@ -36,7 +36,7 @@ class ApiClient {
 
   private async request<T>(
     endpoint: string,
-    method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" = "GET",
     body?: any,
     headers?: Record<string, string>,
   ): Promise<T> {
@@ -50,7 +50,7 @@ class ApiClient {
         },
       };
 
-      if (body && (method === "POST" || method === "PUT")) {
+      if (body && (method === "POST" || method === "PUT" || method === "PATCH")) {
         options.body = JSON.stringify(body);
       }
 
@@ -99,6 +99,10 @@ class ApiClient {
 
   put<T>(endpoint: string, body: any, headers?: Record<string, string>) {
     return this.request<T>(endpoint, "PUT", body, headers);
+  }
+
+  patch<T>(endpoint: string, body: any, headers?: Record<string, string>) {
+    return this.request<T>(endpoint, "PATCH", body, headers);
   }
 
   delete<T>(endpoint: string, headers?: Record<string, string>) {

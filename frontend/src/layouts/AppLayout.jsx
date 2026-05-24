@@ -59,6 +59,18 @@ const navItems = [
         roles: ['seller', 'buyer', 'certifier', 'qualityChecker', 'freightForwarder', 'exportCustoms', 'importCustoms', 'complianceChecker'],
     },
     {
+        path: '/audit',
+        label: 'Audit Log',
+        icon: 'shield',
+        roles: ['seller', 'buyer', 'certifier', 'qualityChecker', 'freightForwarder', 'exportCustoms', 'importCustoms', 'complianceChecker'],
+    },
+    {
+        path: '/stakeholder',
+        label: 'Stakeholder Portal',
+        icon: 'hub',
+        roles: ['seller', 'buyer', 'certifier', 'qualityChecker', 'freightForwarder', 'exportCustoms', 'importCustoms', 'complianceChecker'],
+    },
+    {
         path: '/settings',
         label: 'Settings',
         icon: 'settings',
