@@ -1,5 +1,5 @@
 const { ethers } = require("ethers");
-const { getWriteContract, getReadContract } = require("../config/contract");
+const { getWriteContract, getReadContract, provider } = require("../config/contract");
 const saveRecord = require("../utils/saveRecord");
 const { safeContractCall } = require("../utils/contractErrors");
 const Record = require("../models/Record");
@@ -119,6 +119,35 @@ async function uploadCertificate(req, res, next) {
   }
 }
 
+async function ensureRoleWalletHasGas(privateKey) {
+  if (!privateKey) return;
+
+  const signer = new ethers.Wallet(privateKey, provider);
+  const balance = await provider.getBalance(signer.address);
+  const minBalance = ethers.parseEther("0.002");
+  if (balance >= minBalance) return;
+
+  const network = await provider.getNetwork();
+  // Auto-fund only on local anvil-style chains.
+  if (network.chainId !== 31337n) return;
+
+  const funderKey = process.env.BACKEND_PRIVATE_KEY;
+  if (!funderKey) return;
+
+  const funder = new ethers.Wallet(funderKey, provider);
+  if (funder.address.toLowerCase() === signer.address.toLowerCase()) return;
+
+  const funderBalance = await provider.getBalance(funder.address);
+  const topUpAmount = ethers.parseEther("0.05");
+  if (funderBalance <= topUpAmount) return;
+
+  const tx = await funder.sendTransaction({
+    to: signer.address,
+    value: topUpAmount,
+  });
+  await tx.wait();
+}
+
 /**
  * POST /api/compliance/issue
  */
@@ -140,6 +169,8 @@ async function issueCompliance(req, res, next) {
         error: "certType must be 0 (FireSafety), 1 (BuildingSafety), 2 (LaborStandards), or 3 (Environmental)",
       });
     }
+
+    await ensureRoleWalletHasGas(privateKey);
 
     const contract = getWriteContract(privateKey);
     const result = await safeContractCall({
@@ -188,6 +219,8 @@ async function revokeCompliance(req, res, next) {
         error: "sellerAddress, certType (0-3), and privateKey (or backend key) are required",
       });
     }
+
+    await ensureRoleWalletHasGas(privateKey);
 
     const contract = getWriteContract(privateKey);
     const result = await safeContractCall({

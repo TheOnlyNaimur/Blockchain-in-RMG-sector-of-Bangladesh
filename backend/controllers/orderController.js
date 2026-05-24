@@ -122,7 +122,7 @@ async function acceptOrder(req, res, next) {
 
     const { amount } = data;
     if (!amount) {
-      return res.status(400).json({ success: false, error: "amount is required in data for USDT escrow" });
+      return res.status(400).json({ success: false, error: "amount is required in data for PYUSD escrow" });
     }
 
     // Verify signature
@@ -154,6 +154,15 @@ async function acceptOrder(req, res, next) {
 
     const { receipt } = result;
 
+    await saveRecord("ORDER_ACCEPTED", receipt, {
+      orderId,
+      buyerAddress: userAddress,
+      sellerAddress: data?.sellerAddress || null,
+      amountWei: String(amount),
+      amount: ethers.formatUnits(amount, 6),
+      signature,
+    });
+
     // Generate agreement PDF and upload to IPFS
     let agreementInfo = null;
     try {
@@ -173,12 +182,12 @@ async function acceptOrder(req, res, next) {
       doc.fontSize(12).text(`Order ID: #${orderId}`);
       doc.text(`Seller Address: ${data.sellerAddress || userAddress}`);
       doc.text(`Buyer Address: ${userAddress}`);
-      doc.text(`USDT Amount: ${amount}`);
+      doc.text(`PYUSD Amount: ${amount}`);
       doc.moveDown();
       doc.text("Terms:", { underline: true });
       doc.fontSize(10)
         .text("1. Seller agrees to produce and ship goods as per order details.")
-        .text("2. Buyer has escrowed USDT which will be released upon delivery confirmation.")
+        .text("2. Buyer has escrowed PYUSD which will be released upon delivery confirmation.")
         .text("3. All compliance certifications must be valid before production.")
         .text("4. Four export documents are required before customs clearance.")
         .text("5. Buyer must confirm delivery to release payment.")
@@ -386,6 +395,181 @@ async function payOrder(req, res, next) {
  * GET /api/orders
  */
 async function getOrders(req, res, next) {
+  const buildOrdersFromRecords = async (contractForStatus = null) => {
+    const Record = require("../models/Record");
+    const orderRecords = await Record.find({
+      recordType: {
+        $in: [
+          "ORDER_CREATED",
+          "ORDER_ACCEPTED",
+          "AGREEMENT_GENERATED",
+          "BATCH_CREATED",
+          "QUALITY_CHECK",
+          "SHIPMENT_REQUESTED",
+          "EXPORT_CLEARED",
+          "IMPORT_CLEARED",
+          "ORDER_PAID",
+          "BUYER_CONFIRMED_DELIVERY",
+          "FORCE_RELEASE_BY_CUSTOMS",
+        ],
+      },
+    })
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const ordersMap = new Map();
+    const batchToOrderId = new Map();
+    const shipToOrderId = new Map();
+
+    orderRecords.forEach((r) => {
+      const raw = r.rawData || {};
+      const batchId = String(raw.batchId || "");
+      const shipId = String(raw.shipId || "");
+      const rawOrderId = String(raw.orderId || "");
+      let id = "";
+
+      // Prefer deterministic relationships first (batch -> order, ship -> order),
+      // then fall back to raw orderId.
+      if (batchId && batchToOrderId.has(batchId)) {
+        id = batchToOrderId.get(batchId);
+      }
+
+      if (!id && shipId && shipToOrderId.has(shipId)) {
+        id = shipToOrderId.get(shipId);
+      }
+
+      if (!id && rawOrderId && ordersMap.has(rawOrderId)) {
+        id = rawOrderId;
+      }
+
+      if (!id) {
+        id = rawOrderId;
+      }
+
+      if (!id) return;
+
+      if (!ordersMap.has(id)) {
+        ordersMap.set(id, {
+          id: `#ORD-${id.padStart(3, "0")}`,
+          orderId: id,
+          seller: raw.sellerAddress || "0x0000000000000000000000000000000000000000",
+          buyer: raw.buyerAddress || "0x0000000000000000000000000000000000000000",
+          status: "Created",
+          statusColor: "blue",
+          amount: raw.amount || "0.00",
+          details: raw.details || "N/A",
+          action: null,
+        });
+      }
+
+      if (r.recordType === "ORDER_CREATED") {
+        return;
+      }
+
+      if (r.recordType === "ORDER_ACCEPTED" || r.recordType === "AGREEMENT_GENERATED") {
+        const order = ordersMap.get(id);
+        order.status = "Accepted";
+        order.statusColor = "green";
+        order.action = "Create Batch";
+      }
+
+      if (r.recordType === "BATCH_CREATED") {
+        const order = ordersMap.get(id);
+        if (batchId) {
+          batchToOrderId.set(batchId, id);
+        }
+        order.batchId = raw.batchId || order.batchId;
+        order.status = "Batch Created";
+        order.statusColor = "blue";
+        order.action = null;
+      }
+
+      if (r.recordType === "QUALITY_CHECK") {
+        const order = ordersMap.get(id);
+        if (Boolean(raw.qualityPassed)) {
+          order.status = "QC Approved";
+          order.statusColor = "green";
+          order.action = "Request Shipment";
+        } else {
+          order.status = "QC Failed";
+          order.statusColor = "red";
+          order.action = null;
+        }
+      }
+
+      if (r.recordType === "SHIPMENT_REQUESTED") {
+        const order = ordersMap.get(id);
+        order.shipId = raw.shipId || order.shipId;
+        if (shipId) {
+          shipToOrderId.set(shipId, id);
+        }
+        order.status = "Shipment Requested";
+        order.statusColor = "yellow";
+        order.action = null;
+      }
+
+      if (r.recordType === "EXPORT_CLEARED") {
+        const order = ordersMap.get(id);
+        order.status = "Export Cleared";
+        order.statusColor = "yellow";
+        order.action = null;
+      }
+
+      if (r.recordType === "IMPORT_CLEARED") {
+        const order = ordersMap.get(id);
+        order.status = "Import Cleared";
+        order.statusColor = "purple";
+        order.action = null;
+      }
+
+      if (
+        r.recordType === "ORDER_PAID" ||
+        r.recordType === "BUYER_CONFIRMED_DELIVERY" ||
+        r.recordType === "FORCE_RELEASE_BY_CUSTOMS"
+      ) {
+        const order = ordersMap.get(id);
+        order.status = "Delivered & Paid";
+        order.statusColor = "green";
+        order.action = null;
+      }
+    });
+
+    const fallbackOrders = Array.from(ordersMap.values());
+
+    if (contractForStatus) {
+      await Promise.all(
+        fallbackOrders.map(async (order) => {
+          try {
+            const [status, delivered] = await contractForStatus.getOrderStatus(BigInt(order.orderId));
+            const statusNum = Number(status);
+            const deliveredNum = Number(delivered);
+
+            if (deliveredNum === 1) {
+              order.status = "Delivered & Paid";
+              order.statusColor = "green";
+              order.action = null;
+              return;
+            }
+
+            if (statusNum >= 1) {
+              // Only promote Created -> Accepted from chain status.
+              // Do not downgrade later record-derived states like Batch Created.
+              if (order.status === "Created") {
+                order.status = "Accepted";
+                order.statusColor = "green";
+                order.action = "Create Batch";
+              }
+            }
+          } catch (_) {
+            // Keep record-derived status when chain state lookup is unavailable.
+          }
+        })
+      );
+    }
+
+    return fallbackOrders.reverse();
+  };
+
   try {
     const contract = getReadContract();
 
@@ -434,7 +618,7 @@ async function getOrders(req, res, next) {
         order.status = "Accepted";
         order.statusColor = "green";
         order.action = "Create Batch";
-        order.amount = ethers.formatEther(e.args.amount).toString();
+        order.amount = ethers.formatUnits(e.args.amount, 6).toString();
       }
     });
 
@@ -524,7 +708,18 @@ async function getOrders(req, res, next) {
       data: Array.from(ordersMap.values()).reverse(),
     });
   } catch (err) {
-    next(err);
+    try {
+      // Fallback: keep dashboard functional even when RPC log queries fail.
+      const fallbackContract = getReadContract();
+      const fallbackOrders = await buildOrdersFromRecords(fallbackContract);
+      return res.json({
+        success: true,
+        warning: "Live chain events unavailable. Showing record-backed order snapshot.",
+        data: fallbackOrders,
+      });
+    } catch (fallbackErr) {
+      next(fallbackErr);
+    }
   }
 }
 

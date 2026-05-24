@@ -162,13 +162,63 @@ async function qualityCheck(req, res, next) {
  * GET /api/batches/events
  */
 async function getBatchEvents(req, res, next) {
+  const buildFromRecords = async () => {
+    const Record = require("../models/Record");
+
+    const [batchRecords, qualityRecords] = await Promise.all([
+      Record.find({ recordType: "BATCH_CREATED" }).sort({ createdAt: -1 }).lean(),
+      Record.find({ recordType: "QUALITY_CHECK" }).sort({ createdAt: -1 }).lean(),
+    ]);
+
+    const created = batchRecords.map((r) => {
+      const raw = r.rawData || {};
+      return {
+        type: "BatchCreated",
+        batchId: String(raw.batchId || ""),
+        orderId: String(raw.orderId || ""),
+        seller: raw.sellerAddress || null,
+        productInfo: raw.productInfo || "N/A",
+        productInfoHash: raw.dataHash || "0x",
+        timestamp: Math.floor(new Date(r.createdAt).getTime() / 1000),
+        blockNumber: r.blockNumber,
+        txHash: r.txHash,
+      };
+    });
+
+    const quality = qualityRecords.map((r) => {
+      const raw = r.rawData || {};
+      return {
+        type: "BatchQualityUpdated",
+        batchId: String(raw.batchId || ""),
+        status: Boolean(raw.qualityPassed),
+        timestamp: Math.floor(new Date(r.createdAt).getTime() / 1000),
+        blockNumber: r.blockNumber,
+        txHash: r.txHash,
+      };
+    });
+
+    return { created, quality };
+  };
+
   try {
     const contract = getReadContract();
+    const Record = require("../models/Record");
+
+    const latestBlock = Number(await contract.runner.provider.getBlockNumber());
+    const earliestRecord = await Record.findOne({
+      recordType: { $in: ["ORDER_CREATED", "BATCH_CREATED", "QUALITY_CHECK"] },
+    })
+      .sort({ blockNumber: 1 })
+      .lean();
+
+    const fromBlock = earliestRecord?.blockNumber
+      ? Math.max(Number(earliestRecord.blockNumber), 0)
+      : Math.max(latestBlock - 49000, 0);
 
     const [createdEvents, qualityEvents, orderEvents] = await Promise.all([
-      contract.queryFilter(contract.filters.BatchCreated(), 0, "latest"),
-      contract.queryFilter(contract.filters.BatchQualityUpdated(), 0, "latest"),
-      contract.queryFilter(contract.filters.OrderCreated(), 0, "latest"),
+      contract.queryFilter(contract.filters.BatchCreated(), fromBlock, "latest"),
+      contract.queryFilter(contract.filters.BatchQualityUpdated(), fromBlock, "latest"),
+      contract.queryFilter(contract.filters.OrderCreated(), fromBlock, "latest"),
     ]);
 
     const orderSellerMap = {};
@@ -176,7 +226,6 @@ async function getBatchEvents(req, res, next) {
       orderSellerMap[e.args.orderId.toString()] = e.args.seller;
     });
 
-    const Record = require("../models/Record");
     const batchRecords = await Record.find({ recordType: "BATCH_CREATED" }).lean();
     const batchInfoMap = new Map();
     batchRecords.forEach((r) => {
@@ -209,7 +258,16 @@ async function getBatchEvents(req, res, next) {
 
     res.json({ success: true, data: { created, quality } });
   } catch (err) {
-    next(err);
+    try {
+      const fallback = await buildFromRecords();
+      return res.json({
+        success: true,
+        warning: "Live chain events unavailable. Showing record-backed batch snapshot.",
+        data: fallback,
+      });
+    } catch (fallbackErr) {
+      next(fallbackErr);
+    }
   }
 }
 

@@ -9,6 +9,7 @@ import {
   ImportVerifyRequest,
   ShipmentDetail,
   ShipmentEvent,
+  ShipmentDocumentsDetail,
 } from "../api";
 
 /**
@@ -90,6 +91,19 @@ export function useShipmentDetail(shipmentId: string) {
     () =>
       shipmentsApi.getShipment(shipmentId).then((res: any) => res.data || res),
     !!shipmentId,
+  );
+}
+
+/**
+ * Hook for fetching shipment document hashes for customs verification
+ */
+export function useShipmentDocuments() {
+  return useAsync<ShipmentDocumentsDetail, { shipmentId: string }>(
+    createAsyncFn(async ({ shipmentId }) =>
+      shipmentsApi
+        .getShipmentDocuments(shipmentId)
+        .then((res: any) => res.data || res),
+    ),
   );
 }
 

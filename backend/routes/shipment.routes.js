@@ -5,6 +5,7 @@ const {
   exportVerify,
   importVerify,
   getShipment,
+  getShipmentDocuments,
   getShipmentEvents,
 } = require("../controllers/shipmentController");
 const { upload } = require("../config/ipfs");
@@ -13,6 +14,9 @@ const router = express.Router();
 
 // GET  /api/shipments/events
 router.get("/events", getShipmentEvents);
+
+// GET  /api/shipments/:shipId/docs
+router.get("/:shipId/docs", getShipmentDocuments);
 
 // GET  /api/shipments/:shipId
 router.get("/:shipId", getShipment);

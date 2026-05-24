@@ -410,7 +410,7 @@ export default function SellerDashboard() {
                         Status
                       </th>
                       <th className="px-6 py-4 text-xs font-semibold text-text-secondary uppercase tracking-wider text-right">
-                        Escrowed USDT
+                        Escrowed PYUSD
                       </th>
                       <th className="px-6 py-4 text-xs font-semibold text-text-secondary uppercase tracking-wider text-center">
                         Action
@@ -583,7 +583,7 @@ export default function SellerDashboard() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <label className="text-sm font-medium text-white">
-                    Order Value (USDT)
+                    Order Value (PYUSD)
                   </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary font-mono">
@@ -737,7 +737,7 @@ export default function SellerDashboard() {
                         Escrowed
                       </span>
                       <p className="text-white font-bold">
-                        {batchOrder.amount} USDT
+                        {batchOrder.amount} PYUSD
                       </p>
                     </div>
                     <div>

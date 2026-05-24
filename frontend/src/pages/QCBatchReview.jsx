@@ -25,7 +25,7 @@ export default function QCBatchReview() {
           seller: c.seller ? `${c.seller.slice(0, 8)}...` : "Unknown Seller",
           initials: "BS",
           product: c.productInfo ? c.productInfo.split('- Amount:')[0]?.trim() || "N/A" : c.productInfoHash.substring(0, 10) + "...",
-          qty: c.productInfo && c.productInfo.includes('- Amount:') ? `${c.productInfo.split('- Amount:')[1]?.trim()} USDT` : "N/A",
+          qty: c.productInfo && c.productInfo.includes('- Amount:') ? `${c.productInfo.split('- Amount:')[1]?.trim()} PYUSD` : "N/A",
           time: new Date(c.timestamp?.[0] ? c.timestamp[0] * 1000 : Date.now()).toLocaleString(),
           status: qualityEvent ? (qualityEvent.status ? "Approved" : "Rejected") : "Pending",
           hash: c.productInfoHash,
