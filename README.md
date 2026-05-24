@@ -31,6 +31,125 @@ Important compatibility note:
 
 ## Architecture
 
+### System Architecture Diagram
+
+```mermaid
+flowchart TB
+  subgraph Stakeholders["Stakeholders (8 Roles)"]
+    direction LR
+    R1[Certifier]
+    R2[Compliance Checker]
+    R3[Seller / Factory]
+    R4[Buyer / Brand]
+    R5[Quality Checker]
+    R6[Freight Forwarder]
+    R7[Export Customs]
+    R8[Import Customs]
+  end
+
+  subgraph Frontend["Frontend — React / Vite / Wagmi"]
+    direction TB
+    UI[Role Dashboards<br/>Seller · Buyer · QC · Freight · Customs · Compliance]
+    Public[Public Views<br/>Audit Log · Transaction Ledger · Stakeholder Portal · Traceability]
+    Wallet[MetaMask Wallet<br/>ECDSA Signatures]
+    UI --> Wallet
+    Public --> API_Client[API Client<br/>VITE_API_URL]
+    UI --> API_Client
+  end
+
+  subgraph Backend["Backend — Node.js / Express"]
+    direction TB
+    API["/api REST Gateway<br/>+ Access Revocation Middleware"]
+    Ctrl[Controllers<br/>Orders · Batches · Shipments · Compliance · Audit · Access]
+    Utils[Utils<br/>entityIds · saveRecord · crypto]
+    API --> Ctrl
+    Ctrl --> Utils
+  end
+
+  subgraph OffChain["Off-Chain Persistence"]
+    MongoDB[(MongoDB<br/>Records · OrderRequests · AccessRevocations)]
+    IPFS[Pinata IPFS<br/>Certificates · Export Documents]
+  end
+
+  subgraph Chain["EVM Blockchain (Anvil / Sepolia)"]
+    direction TB
+    SC[MyContract.sol<br/>RBAC · Escrow · TraceEvent]
+    Token[PYUSD / USDT Token<br/>6-decimal escrow]
+    SC <-->|transferFrom / release| Token
+  end
+
+  Stakeholders --> UI
+  Stakeholders --> Public
+  API_Client -->|HTTP JSON| API
+  Ctrl -->|ethers v6 read/write| SC
+  Ctrl --> MongoDB
+  Ctrl --> IPFS
+  Utils --> MongoDB
+  Wallet -.->|signed payloads| API
+  SC -->|TraceEvent logs| Ctrl
+```
+
+### End-to-End Workflow (Hybrid On-Chain + Off-Chain)
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant Seller
+  participant Buyer
+  participant API as Express API
+  participant DB as MongoDB
+  participant IPFS as Pinata IPFS
+  participant SC as MyContract
+
+  Seller->>SC: registerSeller
+  Note over SC: Certifier approves seller
+  Note over SC: Compliance issues 4 certificates
+
+  Buyer->>API: POST /orders/requests (signed)
+  API->>DB: OrderRequest (pending)
+  Seller->>SC: createOrder
+  Seller->>API: PATCH /orders/requests/:id/fulfill
+  API->>DB: link request → orderId
+
+  Buyer->>SC: acceptOrder + escrow (PYUSD)
+  Seller->>SC: createBatch
+  Note over SC: QC approves batch
+  Seller->>SC: requestShipment
+  Note over SC: Freight uploads export doc hashes
+  API->>IPFS: store document files
+  API->>DB: saveRecord + entity IDs (PO/BATCH/SHIP/CERT/DOC)
+
+  Note over SC: Export & import customs clear
+  Buyer->>SC: confirmDelivery
+  SC->>Seller: release escrow
+
+  Note over API,DB: Audit APIs read TraceEvent + Mongo records
+  Note over Buyer: Public ledger / traceability views
+```
+
+### Component Map (API Domains)
+
+```mermaid
+flowchart LR
+  subgraph API["/api"]
+    sellers[/sellers]
+    buyers[/buyers]
+    orders[/orders<br/>+ /requests]
+    batches[/batches]
+    shipments[/shipments]
+    compliance[/compliance]
+    customs[/customs]
+    audit[/audit<br/>timeline · trail · record]
+    records[/records]
+    ipfs[/ipfs]
+    access[/access<br/>revoke · restore]
+  end
+
+  API --> MongoDB[(MongoDB)]
+  API --> Contract[MyContract.sol]
+  ipfs --> Pinata[Pinata]
+```
+
 ### 1) On-chain Layer (Solidity)
 
 Core contract: src/MyContract.sol
