@@ -91,9 +91,24 @@ async function registerSeller(req, res, next) {
   }
 }
 
+function getApprovalCertificateFile(req) {
+  if (req.file) return req.file;
+
+  const uploadedFiles = req.files || {};
+  if (Array.isArray(uploadedFiles.certificate) && uploadedFiles.certificate[0]) {
+    return uploadedFiles.certificate[0];
+  }
+  if (Array.isArray(uploadedFiles.file) && uploadedFiles.file[0]) {
+    return uploadedFiles.file[0];
+  }
+
+  return null;
+}
+
 /**
  * POST /api/sellers/approve
- * Certifier approves or rejects seller KYC on-chain (no certificate upload).
+ * Certifier approves or rejects seller KYC on-chain.
+ * Accepts an optional certificate upload for the approval record.
  */
 async function approveSeller(req, res, next) {
   try {
@@ -117,6 +132,35 @@ async function approveSeller(req, res, next) {
       return res.status(400).json({ success: false, error: "privateKey is required or backend not configured" });
     }
 
+    const certificateFile = Number(assign) === 1 ? getApprovalCertificateFile(req) : null;
+    let approvalCertificate = null;
+
+    if (certificateFile) {
+      const fileBuffer = certificateFile.buffer || certificateFile.data;
+      const fileName = certificateFile.originalname || certificateFile.name || "certificate.pdf";
+      if (!fileBuffer) {
+        return res.status(400).json({ success: false, error: "Uploaded certificate file is empty" });
+      }
+
+      const stream = Readable.from(fileBuffer);
+      stream.path = fileName;
+
+      const ipfsResult = await uploadToIPFS(stream, fileName, {
+        certType: "SellerApprovalCertificate",
+        sellerAddress,
+        uploadedAt: new Date().toISOString(),
+      });
+
+      approvalCertificate = {
+        fileName,
+        mimeType: certificateFile.mimetype,
+        size: certificateFile.size,
+        cid: ipfsResult.cid,
+        certDocHash: ethers.keccak256(ethers.toUtf8Bytes(ipfsResult.cid)),
+        ipfsUrl: ipfsResult.ipfsUrl,
+      };
+    }
+
     const contract = getRoleContract(privateKey);
     const result = await safeContractCall({
       contract,
@@ -134,6 +178,8 @@ async function approveSeller(req, res, next) {
       certifierAddress: receipt.from,
       sellerAddress,
       decision: statusLabel,
+      approvalType: "certifier",
+      ...(approvalCertificate || {}),
     });
 
     res.json({
@@ -141,7 +187,10 @@ async function approveSeller(req, res, next) {
       txHash: receipt.hash,
       blockNumber: receipt.blockNumber,
       decision: statusLabel,
-      message: Number(assign) === 1 ? "Seller approved successfully." : "Seller rejected successfully.",
+      ...(approvalCertificate || {}),
+      message: Number(assign) === 1
+        ? "Seller approved successfully."
+        : "Seller rejected successfully.",
     });
   } catch (err) {
     next(err);

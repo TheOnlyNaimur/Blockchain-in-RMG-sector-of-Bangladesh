@@ -20,7 +20,11 @@ export const UserProvider = ({ children }) => {
       if (stored) {
         const parsed = JSON.parse(stored);
         setUserRole(parsed.role);
-        setUserProfile(parsed.profile);
+        setUserProfile({
+          ...(parsed.profile || {}),
+          role: parsed.profile?.role || parsed.role || null,
+          address: parsed.profile?.address || address,
+        });
       } else if (detectedRole) {
         // If no custom role, use auto-detected role
         setUserRole(detectedRole);

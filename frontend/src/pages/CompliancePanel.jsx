@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import AppLayout from "../layouts/AppLayout";
 import { toast } from "react-hot-toast";
-import { keccak256, toUtf8Bytes } from "ethers";
+import { keccak256, toUtf8Bytes, isAddress } from "ethers";
 import { useAccount } from "wagmi";
 import { accessApi } from "../api";
 
@@ -30,11 +30,12 @@ export default function CompliancePanel() {
 
   // Fetch current compliance status for the given seller via REST
   const checkSellerStatus = async () => {
-    if (!sellerAddress || sellerAddress.length !== 42) return;
+    const normalizedSellerAddress = sellerAddress.trim();
+    if (!normalizedSellerAddress || !isAddress(normalizedSellerAddress)) return;
     
     setFetchingStatus(true);
     try {
-      const response = await fetch(`${API_BASE}/compliance/${sellerAddress}`);
+      const response = await fetch(`${API_BASE}/compliance/${normalizedSellerAddress}`);
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "Failed to fetch status");
 
@@ -42,10 +43,12 @@ export default function CompliancePanel() {
       const building = data.compliance.find(c => c.type === "BuildingSafety")?.isValid;
       const labor = data.compliance.find(c => c.type === "LaborStandards")?.isValid;
       const env = data.compliance.find(c => c.type === "Environmental")?.isValid;
+      const hasAnyRecord = data.compliance.some(c => c.cid || c.certDocHash);
 
       setSellerStatus({
-        isRegistered: true, // Assuming registered if they have compliance data
-        name: "Queried Factory", 
+        isRegistered: hasAnyRecord,
+        name: normalizedSellerAddress,
+        sellerAddress: normalizedSellerAddress,
         hasFire: fire,
         hasBuilding: building,
         hasLabor: labor,
@@ -70,7 +73,11 @@ export default function CompliancePanel() {
 
   const handleIssueCert = async (e) => {
     e.preventDefault();
-    if (!sellerAddress) return toast.error("Please enter a seller address");
+    const normalizedSellerAddress = sellerAddress.trim();
+    if (!normalizedSellerAddress) return toast.error("Please enter a seller address");
+    if (!isAddress(normalizedSellerAddress)) {
+      return toast.error("Please enter a valid Ethereum seller address");
+    }
     if (!selectedFile) return toast.error("Please upload a certificate document");
 
     setLoading(true);
@@ -78,7 +85,7 @@ export default function CompliancePanel() {
       toast.loading("Uploading document to IPFS...", { id: "issue" });
       const formData = new FormData();
       formData.append("file", selectedFile);
-      formData.append("label", `Compliance-${sellerAddress}-${selectedType}`);
+      formData.append("label", `Compliance-${normalizedSellerAddress}-${selectedType}`);
 
       const ipfsRes = await fetch(`${API_BASE}/ipfs/upload`, {
         method: "POST",
@@ -95,7 +102,7 @@ export default function CompliancePanel() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sellerAddress,
+          sellerAddress: normalizedSellerAddress,
           certType: selectedType,
           certDocHash,
           cid,
@@ -318,11 +325,13 @@ export default function CompliancePanel() {
               <div className="space-y-6">
                 <div className="flex items-center justify-between p-4 bg-[#1A221C] rounded-lg border border-border-dark">
                   <div>
-                    <p className="text-sm text-text-secondary mb-1">Factory Name</p>
-                    <p className="text-lg font-bold text-white">{sellerStatus.name || "Unknown / Not Registered"}</p>
+                    <p className="text-sm text-text-secondary mb-1">Seller Wallet</p>
+                    <p className="text-lg font-bold text-white font-mono break-all">
+                      {sellerStatus.sellerAddress || sellerStatus.name || "Unknown / Not Registered"}
+                    </p>
                   </div>
                   <div className={`px-3 py-1 rounded-full text-xs font-bold ${sellerStatus.isRegistered ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
-                    {sellerStatus.isRegistered ? 'Registered' : 'Unregistered'}
+                    {sellerStatus.isRegistered ? 'Records Found' : 'No Records'}
                   </div>
                 </div>
 

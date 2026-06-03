@@ -69,10 +69,8 @@ router.post(
 router.post(
   "/approve",
   upload.fields([
-    { name: "file_0", maxCount: 1 },
-    { name: "file_1", maxCount: 1 },
-    { name: "file_2", maxCount: 1 },
-    { name: "file_3", maxCount: 1 },
+    { name: "certificate", maxCount: 1 },
+    { name: "file", maxCount: 1 },
   ]),
   approveSeller
 );

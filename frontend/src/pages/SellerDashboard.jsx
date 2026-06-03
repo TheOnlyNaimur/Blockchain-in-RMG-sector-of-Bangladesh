@@ -13,7 +13,7 @@ import { ROLES } from "../config/contracts";
 import { generateOrderPDF, generateCertificatePDF } from "../utils/pdfGenerator";
 
 export default function SellerDashboard() {
-  const { userProfile } = useUser();
+  const { userRole, userProfile } = useUser();
   const { isConnected } = useWallet();
   const {
     execute: createBatch,
@@ -276,7 +276,7 @@ export default function SellerDashboard() {
                     <span className="material-symbols-outlined text-[18px]">
                       verified_user
                     </span>
-                    <span className="font-mono">Role: {userProfile?.role || "Pending"}</span>
+                    <span className="font-mono">Role: {userRole || userProfile?.role || "Pending"}</span>
                   </div>
                 </div>
               </div>

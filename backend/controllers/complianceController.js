@@ -263,26 +263,49 @@ async function getSellerComplianceStatus(req, res, next) {
       return res.status(400).json({ success: false, error: "Valid sellerAddress is required" });
     }
 
-    const contract = getReadContract();
-    const complianceStatus = await contract.getSellerCompliance(sellerAddress);
-    const isFullyCompliant = await contract.isSellerCompliant(sellerAddress);
-
     const COMPLIANCE_TYPES = ["FireSafety", "BuildingSafety", "LaborStandards", "Environmental"];
 
-    const records = await Record.find({
-      recordType: "COMPLIANCE_ISSUED",
-      "rawData.sellerAddress": sellerAddress,
-    }).sort({ createdAt: -1 });
+    const sellerAddressRegex = new RegExp(`^${sellerAddress}$`, "i");
+    const [issuedRecords, revokedRecords] = await Promise.all([
+      Record.find({
+        recordType: "COMPLIANCE_ISSUED",
+        "rawData.sellerAddress": sellerAddressRegex,
+      }).sort({ createdAt: -1 }),
+      Record.find({
+        recordType: "COMPLIANCE_REVOKED",
+        "rawData.sellerAddress": sellerAddressRegex,
+      }).sort({ createdAt: -1 }),
+    ]);
 
     const details = COMPLIANCE_TYPES.map((type, i) => {
-      const latestRecord = records.find((r) => r.rawData.certType === type);
+      const latestIssuedRecord = issuedRecords.find((record) => record.rawData.certType === type);
+      const latestRevokedRecord = revokedRecords.find((record) => record.rawData.certType === type);
+
+      const latestExpiry = latestIssuedRecord?.rawData?.expiresAt
+        ? Number(latestIssuedRecord.rawData.expiresAt)
+        : null;
+      const issuedAt = latestIssuedRecord?.createdAt ? new Date(latestIssuedRecord.createdAt).getTime() : null;
+      const revokedAt = latestRevokedRecord?.createdAt ? new Date(latestRevokedRecord.createdAt).getTime() : null;
+      const isRevoked = Boolean(
+        latestRevokedRecord && (issuedAt == null || revokedAt == null || revokedAt >= issuedAt),
+      );
+      const isDbValid =
+        Boolean(latestIssuedRecord) &&
+        !isRevoked &&
+        (latestExpiry == null || Number.isNaN(latestExpiry)
+          ? true
+          : latestExpiry > Math.floor(Date.now() / 1000));
+
       return {
         type,
-        isValid: complianceStatus[i],
-        cid: latestRecord ? latestRecord.rawData.cid : null,
-        certDocHash: latestRecord ? latestRecord.rawData.certDocHash : null,
+        isValid: isDbValid,
+        isRevoked,
+        cid: latestIssuedRecord ? latestIssuedRecord.rawData.cid : null,
+        certDocHash: latestIssuedRecord ? latestIssuedRecord.rawData.certDocHash : null,
       };
     });
+
+    const isFullyCompliant = details.every((item) => item.isValid);
 
     res.json({
       success: true,

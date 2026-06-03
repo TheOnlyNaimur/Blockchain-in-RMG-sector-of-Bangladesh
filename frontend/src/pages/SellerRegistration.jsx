@@ -58,7 +58,14 @@ export default function SellerRegistration() {
       // Store seller role for role detection
       localStorage.setItem(
         `user_${address?.toLowerCase()}`,
-        JSON.stringify({ role: "seller", profile: { name } }),
+        JSON.stringify({
+          role: "seller",
+          profile: {
+            name,
+            role: "seller",
+            address,
+          },
+        }),
       );
 
       // Redirect to dashboard after 2 seconds
