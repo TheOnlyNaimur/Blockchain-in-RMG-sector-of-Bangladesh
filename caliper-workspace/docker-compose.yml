@@ -1,0 +1,52 @@
+services:
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint:
+      - "anvil"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8545"
+      - "--accounts"
+      - "20"
+      - "--chain-id"
+      - "31337"
+      - "--block-time"
+      - "1"
+    ports:
+      - "8545:8545"
+    networks:
+      - rmg-net
+    healthcheck:
+      test: ["CMD-SHELL", "cast block-number --rpc-url http://localhost:8545 || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  caliper:
+    build:
+      context: .
+      dockerfile: Dockerfile.caliper
+    depends_on:
+      anvil:
+        condition: service_healthy
+    networks:
+      - rmg-net
+    environment:
+      - DEBUG=caliper:*
+      - CALIPER_LOGLEVEL=debug
+      - CALIPER_LOGGING_LEVEL=debug
+    command: >
+      caliper launch manager
+      --caliper-workspace /caliper-workspace/caliper
+      --caliper-networkconfig /caliper-workspace/caliper/networkconfig.json
+      --caliper-benchconfig /caliper-workspace/caliper/benchmark.yaml
+      --caliper-flow-skip-install
+      --caliper-report-path /caliper-workspace/caliper/report/report.html
+    volumes:
+      - ./caliper/report:/caliper-workspace/caliper/report
+
+networks:
+  rmg-net:
+    driver: bridge

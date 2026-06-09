@@ -6,6 +6,10 @@ const saveRecord = require("../../utils/saveRecord");
 jest.mock("../../config/contract", () => ({
   getWriteContract: jest.fn(),
   getRoleContract: jest.fn(),
+  provider: {
+    getBalance: jest.fn().mockResolvedValue(BigInt(10000000000000000000)), // 10 ETH
+    getNetwork: jest.fn().mockResolvedValue({ chainId: 31337n }),
+  },
 }));
 
 jest.mock("../../utils/saveRecord", () => jest.fn());
@@ -19,7 +23,7 @@ describe("Compliance Controller", () => {
     res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
     next = jest.fn();
     jest.clearAllMocks();
-    process.env.COMPLIANCE_CHECKER_PRIVATE_KEY = "0xComplianceKey";
+    process.env.COMPLIANCE_CHECKER_PRIVATE_KEY = "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97";
   });
 
   describe("issueCompliance", () => {

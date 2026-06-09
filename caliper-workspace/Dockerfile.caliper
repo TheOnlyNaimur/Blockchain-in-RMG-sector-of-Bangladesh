@@ -1,0 +1,21 @@
+FROM node:18-alpine
+
+# Install build deps needed for native modules
+RUN apk add --no-cache python3 make g++ git
+
+WORKDIR /caliper-workspace
+
+# Install Hyperledger Caliper CLI globally
+RUN npm install --global --unsafe-perm @hyperledger/caliper-cli@0.6.0
+
+# Bind the Ethereum (ethers.js) SUT connector
+RUN caliper bind --caliper-bind-sut ethereum:latest --caliper-bind-args="--ignore-engines"
+
+# Overwrite global connector script with our custom patched one
+COPY caliper/ethereum-connector.js /usr/local/lib/node_modules/@hyperledger/caliper-cli/node_modules/@hyperledger/caliper-ethereum/lib/ethereum-connector.js
+
+# Copy the caliper workspace (networkconfig, benchmark, workload scripts)
+COPY caliper/ ./caliper/
+
+# Copy the backend ABI so networkconfig.json can reference it
+COPY backend/ ./backend/

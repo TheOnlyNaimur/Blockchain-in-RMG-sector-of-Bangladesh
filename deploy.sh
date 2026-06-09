@@ -25,8 +25,37 @@ echo "📦 Building contracts..."
 forge build --force 2>/dev/null
 echo "   ✅ Build successful"
 
+if [ -n "$PRIVATE_KEY" ] && [ -n "$BUYER_ADDRESS" ]; then
+  echo ""
+  echo "🪙 Deploying Mock USDT..."
+  # Only deploying it for the run, we will parse the JSON output
+  USDT_DEPLOY_JSON=$(forge create src/MockUSDT.sol:MockUSDT --rpc-url "$RPC_URL" --private-key "$PRIVATE_KEY" --broadcast --json 2>/dev/null)
+  
+  # Python extraction to be robust
+  NEW_USDT_ADDRESS=$(python3 -c "
+import sys, json
+try:
+    data = json.loads(sys.stdin.read())
+    print(data.get('deployedTo', ''))
+except Exception:
+    print('')
+" <<< "$USDT_DEPLOY_JSON")
+
+  if [ -n "$NEW_USDT_ADDRESS" ]; then
+    USDT_ADDRESS=$NEW_USDT_ADDRESS
+    export USDT_ADDRESS
+    echo "   MockUSDT     : $USDT_ADDRESS"
+    
+    echo "💸 Minting 1,000,000 Mock USDT to Buyer ($BUYER_ADDRESS)..."
+    cast send "$USDT_ADDRESS" "mint(address,uint256)" "$BUYER_ADDRESS" 1000000000000000000000000 --rpc-url "$RPC_URL" --private-key "$PRIVATE_KEY" >/dev/null 2>&1
+    echo "   ✅ Minted 1,000,000 USDT to $BUYER_ADDRESS"
+  else
+    echo "   ❌ Failed to deploy MockUSDT"
+  fi
+fi
+
 echo ""
-echo "🚀 Deploying to network ($RPC_URL)..."
+echo "🚀 Deploying MyContract to network ($RPC_URL)..."
 CHAIN_ID=$(cast chain-id --rpc-url "$RPC_URL")
 
 forge script script/Deploy.s.sol \
@@ -73,9 +102,11 @@ update_env() {
 }
 
 update_env "$PROJECT_DIR/.env" "CONTRACT_ADDRESS" "$CONTRACT_ADDRESS"
+update_env "$PROJECT_DIR/.env" "USDT_ADDRESS" "$USDT_ADDRESS"
 echo "   ✅ .env (root)"
 
 update_env "$PROJECT_DIR/backend/.env" "CONTRACT_ADDRESS" "$CONTRACT_ADDRESS"
+update_env "$PROJECT_DIR/backend/.env" "USDT_ADDRESS" "$USDT_ADDRESS"
 echo "   ✅ backend/.env"
 
 update_env "$PROJECT_DIR/frontend/.env" "VITE_CONTRACT_ADDRESS" "$CONTRACT_ADDRESS"
@@ -104,6 +135,26 @@ with open('$ABI_DEST', 'w') as f:
     json.dump(data['abi'], f, indent=2)
 "
 echo "   ✅ backend/abi/MyContract.json"
+
+ABI_CALIPER="$PROJECT_DIR/caliper-workspace/backend/abi/MyContract.json"
+if [ -d "$PROJECT_DIR/caliper-workspace/backend/abi" ]; then
+  cp "$ABI_DEST" "$ABI_CALIPER"
+  echo "   ✅ caliper-workspace/backend/abi/MyContract.json"
+fi
+
+# Update Caliper network config (canonical location: caliper/networkconfig.yaml)
+CALIPER_NET_CONFIG="$PROJECT_DIR/caliper-workspace/caliper/networkconfig.yaml"
+if [ -f "$CALIPER_NET_CONFIG" ]; then
+  python3 -c "
+import re
+with open('$CALIPER_NET_CONFIG', 'r') as f:
+    content = f.read()
+updated = re.sub(r'address:\s*\"[^\"]+\"', 'address: \"$CONTRACT_ADDRESS\"', content)
+with open('$CALIPER_NET_CONFIG', 'w') as f:
+    f.write(updated)
+"
+  echo "   ✅ caliper-workspace/caliper/networkconfig.yaml"
+fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════════"

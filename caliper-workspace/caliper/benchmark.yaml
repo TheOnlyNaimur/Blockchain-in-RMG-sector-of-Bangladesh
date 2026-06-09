@@ -1,0 +1,170 @@
+test:
+  name: RMG Stakeholder Workflow Benchmark
+  description: Sequential benchmark for seller approval, compliance, order creation, production, and customs flow.
+
+  workers:
+    number: 1
+
+  rounds:
+    - label: seller_register
+      description: Register synthetic sellers
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/seller_register.js
+        arguments:
+          fromAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+          privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+    - label: certifier_approve
+      description: Certifier approves registered sellers
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/certifier_approve.js
+        arguments:
+          fromAddress: "0x90F79bf6EB2c4f870365E785982E1f101E93b906"
+          privateKey: "0x7c852118294e51e653712a81e05800f419141751be58f605c371e15141b007a6"
+
+    - label: compliance_fire
+      description: Issue fire safety certificates
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/compliance_issue.js
+        arguments:
+          certType: 0
+          fromAddress: "0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"
+          privateKey: "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
+
+    - label: compliance_building
+      description: Issue building safety certificates
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/compliance_issue.js
+        arguments:
+          certType: 1
+          fromAddress: "0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"
+          privateKey: "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
+
+    - label: compliance_labor
+      description: Issue labor standards certificates
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/compliance_issue.js
+        arguments:
+          certType: 2
+          fromAddress: "0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"
+          privateKey: "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
+
+    - label: compliance_environmental
+      description: Issue environmental certificates
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/compliance_issue.js
+        arguments:
+          certType: 3
+          fromAddress: "0x23618e81E3f5cdF7f54C3d65f7FBc0aBf5B21E8f"
+          privateKey: "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97"
+
+    - label: buyer_order_setup
+      description: Register buyer and create order
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/buyer_order_setup.js
+        arguments:
+          fromAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+          privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+    - label: seller_batch_create
+      description: Create production batches for created orders
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/seller_batch_create.js
+        arguments:
+          fromAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+          privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+    - label: quality_check
+      description: Quality checker approves created batches
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 10
+      workload:
+        module: workload/quality_check.js
+        arguments:
+          fromAddress: "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65"
+          privateKey: "0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a"
+
+    - label: freight_docs_flow
+      description: Freight flow requests shipment and uploads four export docs
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 8
+      workload:
+        module: workload/freight_docs_flow.js
+        arguments:
+          fromAddress: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"
+          privateKey: "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"
+          freightForwarderAddress: "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc"
+
+    - label: customs_clearance
+      description: Export customs then import customs clear shipments
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 8
+      workload:
+        module: workload/customs_clearance.js
+        arguments:
+          exportFromAddress: "0x976EA74026E726554dB657fA54763abd0C3a0aa9"
+          exportPrivateKey: "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d6b8d88b2b4ec1564e"
+          importFromAddress: "0x14dC79964da2C08b23698B3D3cc7Ca32193d9955"
+          importPrivateKey: "0x4bbbf85ce3377467afe5d46f804f221813b2bb87f24d81f60f1fcdbf7cbf4356"
+
+    - label: buyer_confirm_delivery
+      description: Buyer confirms delivery to release escrow
+      txNumber: 20
+      rateControl:
+        type: fixed-rate
+        opts:
+          tps: 8
+      workload:
+        module: workload/buyer_confirm_delivery.js
+        arguments:
+          fromAddress: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+          privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"

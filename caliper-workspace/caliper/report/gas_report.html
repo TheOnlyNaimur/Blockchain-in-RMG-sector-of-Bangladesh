@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gas Consumption Report</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #151d30;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-primary: #6366f1;
+            --accent-secondary: #a855f7;
+            --accent-gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+            --border-color: #22314f;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            padding: 2.5rem;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2.5rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1.5rem;
+        }
+
+        .header-title h1 {
+            font-size: 2.25rem;
+            font-weight: 700;
+            background: var(--accent-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .header-title p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        .timestamp {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            background: var(--card-bg);
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px -10px rgba(99, 102, 241, 0.2);
+            border-color: rgba(99, 102, 241, 0.4);
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent-gradient);
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .stat-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-desc {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        /* Controls */
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            gap: 1rem;
+        }
+
+        .search-wrapper {
+            position: relative;
+            flex-grow: 1;
+            max-width: 400px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 0.75rem 1rem 0.75rem 2.5rem;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 0.85rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+            pointer-events: none;
+        }
+
+        /* Table Card */
+        .table-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 1rem;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            margin-bottom: 2.5rem;
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        th {
+            background-color: rgba(34, 49, 79, 0.4);
+            color: var(--text-secondary);
+            font-weight: 600;
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        td {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-primary);
+            vertical-align: middle;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr {
+            transition: background-color 0.15s;
+        }
+
+        tr:hover {
+            background-color: rgba(99, 102, 241, 0.04);
+        }
+
+        .contract-badge {
+            background: rgba(99, 102, 241, 0.15);
+            color: #818cf8;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.375rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+        }
+
+        .method-name {
+            font-family: 'Courier New', Courier, monospace;
+            font-weight: bold;
+            color: #e2e8f0;
+            font-size: 0.95rem;
+        }
+
+        .gas-bar-container {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            min-width: 180px;
+        }
+
+        .gas-bar-bg {
+            flex-grow: 1;
+            height: 6px;
+            background: rgba(34, 49, 79, 0.6);
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+
+        .gas-bar-fill {
+            height: 100%;
+            background: var(--accent-gradient);
+            border-radius: 9999px;
+        }
+
+        .gas-bar-value {
+            font-weight: 600;
+            min-width: 60px;
+            text-align: right;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .no-data {
+            padding: 3rem;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        /* Chart Section */
+        .chart-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-top: 2.5rem;
+        }
+
+        .chart-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .chart-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .chart-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .chart-label {
+            width: 180px;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-family: monospace;
+        }
+
+        .chart-bar-wrapper {
+            flex-grow: 1;
+            height: 24px;
+            background: rgba(34, 49, 79, 0.4);
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .chart-bar {
+            height: 100%;
+            background: var(--accent-gradient);
+            transition: width 1s ease-out;
+            width: 0;
+        }
+
+        .chart-bar-value {
+            position: absolute;
+            left: 10px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-title">
+                <h1>Smart Contract Gas Consumption</h1>
+                <p>Performance benchmark analytical profile of transaction execution costs</p>
+            </div>
+            <div class="timestamp">
+                Generated: <span id="generation-date"></span>
+            </div>
+        </header>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total Gas Consumed</div>
+                <div class="stat-value" style="color: #c084fc;">6,550,350</div>
+                <div class="stat-desc">Cumulative gas across all transactions</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Transactions</div>
+                <div class="stat-value" style="color: #60a5fa;">285</div>
+                <div class="stat-desc">Successful benchmark executions</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Average Gas Per Tx</div>
+                <div class="stat-value" style="color: #34d399;">22,984</div>
+                <div class="stat-desc">Weighted average across all operations</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Peak Gas Operation</div>
+                <div class="stat-value" style="color: #f87171; font-size: 1.25rem; height: 1.75rem; display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="MyContract.createdealforbuyers">createdealforbuyers</div>
+                <div class="stat-desc">Max: 25,760 gas</div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <div class="search-wrapper">
+                <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.11-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                </svg>
+                <input type="text" id="search" class="search-input" placeholder="Search by contract or function name...">
+            </div>
+        </div>
+
+        <!-- Table Card -->
+        <div class="table-card">
+            <div class="table-responsive">
+                <table id="gas-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 60px;" class="text-center">#</th>
+                            <th>Contract</th>
+                            <th>Method / Function</th>
+                            <th class="text-center">Total Tx</th>
+                            <th class="text-right">Min Gas</th>
+                            <th class="text-right">Max Gas</th>
+                            <th class="text-right">Avg Gas Used</th>
+                            <th style="width: 250px;">Avg Gas Intensity</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                        <tr data-contract="MyContract" data-method="createdealforbuyers">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">1</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">createdealforbuyers</span></td>
+                            <td class="text-center">11</td>
+                            <td class="text-right">25,700</td>
+                            <td class="text-right">25,760</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">25,744</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 100%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">100%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="registrationseller">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">2</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">registrationseller</span></td>
+                            <td class="text-center">20</td>
+                            <td class="text-right">23,610</td>
+                            <td class="text-right">23,700</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">23,694</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 92%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">92%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="issueCompliance">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">3</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">issueCompliance</span></td>
+                            <td class="text-center">80</td>
+                            <td class="text-right">23,520</td>
+                            <td class="text-right">23,610</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">23,598</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 92%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">92%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="batchCreate">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">4</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">batchCreate</span></td>
+                            <td class="text-center">20</td>
+                            <td class="text-right">23,140</td>
+                            <td class="text-right">23,170</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">23,167</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 90%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">90%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="uploadExportDoc">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">5</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">uploadExportDoc</span></td>
+                            <td class="text-center">40</td>
+                            <td class="text-right">23,080</td>
+                            <td class="text-right">23,140</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">23,129</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 90%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">90%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="registrationbuyer">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">6</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">registrationbuyer</span></td>
+                            <td class="text-center">11</td>
+                            <td class="text-right">22,790</td>
+                            <td class="text-right">22,820</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">22,815</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 89%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">89%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="shipReq">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">7</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">shipReq</span></td>
+                            <td class="text-center">10</td>
+                            <td class="text-right">22,780</td>
+                            <td class="text-right">22,810</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">22,807</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 89%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">89%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="acceptorder">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">8</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">acceptorder</span></td>
+                            <td class="text-center">11</td>
+                            <td class="text-right">22,240</td>
+                            <td class="text-right">22,270</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">22,267</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 86%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">86%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="buyerConfirmDelivery">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">9</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">buyerConfirmDelivery</span></td>
+                            <td class="text-center">20</td>
+                            <td class="text-right">22,210</td>
+                            <td class="text-right">22,240</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">22,239</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 86%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">86%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="approveseller">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">10</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">approveseller</span></td>
+                            <td class="text-center">20</td>
+                            <td class="text-right">21,860</td>
+                            <td class="text-right">21,890</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">21,889</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 85%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">85%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="bqualitycheck">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">11</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">bqualitycheck</span></td>
+                            <td class="text-center">20</td>
+                            <td class="text-right">21,860</td>
+                            <td class="text-right">21,860</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">21,860</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 85%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">85%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="expVerify">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">12</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">expVerify</span></td>
+                            <td class="text-center">11</td>
+                            <td class="text-right">21,510</td>
+                            <td class="text-right">21,510</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">21,510</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 84%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">84%</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr data-contract="MyContract" data-method="impVerify">
+                            <td class="text-center" style="color: var(--text-secondary); font-weight: 600;">13</td>
+                            <td><span class="contract-badge">MyContract</span></td>
+                            <td><span class="method-name">impVerify</span></td>
+                            <td class="text-center">11</td>
+                            <td class="text-right">21,510</td>
+                            <td class="text-right">21,510</td>
+                            <td class="text-right" style="font-weight: 600; color: #fff;">21,510</td>
+                            <td>
+                                <div class="gas-bar-container">
+                                    <div class="gas-bar-bg">
+                                        <div class="gas-bar-fill" style="width: 84%;"></div>
+                                    </div>
+                                    <span class="gas-bar-value">84%</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Chart Card -->
+        <div class="chart-card">
+            <div class="chart-title">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16" style="color: var(--accent-primary);">
+                    <path d="M11 2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V2zm-3 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V6zM5 9a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V9z"/>
+                </svg>
+                Average Gas Consumption Breakdown (Avg Gas Used)
+            </div>
+            <div class="chart-container" id="chart-container">
+                <div class="chart-row" data-contract="MyContract" data-method="createdealforbuyers">
+                    <div class="chart-label" title="MyContract.createdealforbuyers">MyContract.createdealforbuyers</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="100"></div>
+                        <div class="chart-bar-value">25,744 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="registrationseller">
+                    <div class="chart-label" title="MyContract.registrationseller">MyContract.registrationseller</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="92"></div>
+                        <div class="chart-bar-value">23,694 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="issueCompliance">
+                    <div class="chart-label" title="MyContract.issueCompliance">MyContract.issueCompliance</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="92"></div>
+                        <div class="chart-bar-value">23,598 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="batchCreate">
+                    <div class="chart-label" title="MyContract.batchCreate">MyContract.batchCreate</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="90"></div>
+                        <div class="chart-bar-value">23,167 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="uploadExportDoc">
+                    <div class="chart-label" title="MyContract.uploadExportDoc">MyContract.uploadExportDoc</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="90"></div>
+                        <div class="chart-bar-value">23,129 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="registrationbuyer">
+                    <div class="chart-label" title="MyContract.registrationbuyer">MyContract.registrationbuyer</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="89"></div>
+                        <div class="chart-bar-value">22,815 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="shipReq">
+                    <div class="chart-label" title="MyContract.shipReq">MyContract.shipReq</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="89"></div>
+                        <div class="chart-bar-value">22,807 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="acceptorder">
+                    <div class="chart-label" title="MyContract.acceptorder">MyContract.acceptorder</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="86"></div>
+                        <div class="chart-bar-value">22,267 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="buyerConfirmDelivery">
+                    <div class="chart-label" title="MyContract.buyerConfirmDelivery">MyContract.buyerConfirmDelivery</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="86"></div>
+                        <div class="chart-bar-value">22,239 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="approveseller">
+                    <div class="chart-label" title="MyContract.approveseller">MyContract.approveseller</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="85"></div>
+                        <div class="chart-bar-value">21,889 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="bqualitycheck">
+                    <div class="chart-label" title="MyContract.bqualitycheck">MyContract.bqualitycheck</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="85"></div>
+                        <div class="chart-bar-value">21,860 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="expVerify">
+                    <div class="chart-label" title="MyContract.expVerify">MyContract.expVerify</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="84"></div>
+                        <div class="chart-bar-value">21,510 gas</div>
+                    </div>
+                </div>
+                <div class="chart-row" data-contract="MyContract" data-method="impVerify">
+                    <div class="chart-label" title="MyContract.impVerify">MyContract.impVerify</div>
+                    <div class="chart-bar-wrapper">
+                        <div class="chart-bar" data-width="84"></div>
+                        <div class="chart-bar-value">21,510 gas</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('generation-date').textContent = new Date().toLocaleString();
+
+        // Animate chart bars after loading
+        window.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                const bars = document.querySelectorAll('.chart-bar');
+                bars.forEach(bar => {
+                    const width = bar.getAttribute('data-width');
+                    bar.style.width = width + '%';
+                });
+            }, 100);
+        });
+
+        // Search filtering
+        const searchInput = document.getElementById('search');
+        const tableRows = document.querySelectorAll('#table-body tr');
+        const chartRows = document.querySelectorAll('.chart-row');
+
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+
+            tableRows.forEach(row => {
+                const contract = row.getAttribute('data-contract') ? row.getAttribute('data-contract').toLowerCase() : '';
+                const method = row.getAttribute('data-method') ? row.getAttribute('data-method').toLowerCase() : '';
+                if (contract.includes(query) || method.includes(query)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            chartRows.forEach(row => {
+                const contract = row.getAttribute('data-contract') ? row.getAttribute('data-contract').toLowerCase() : '';
+                const method = row.getAttribute('data-method') ? row.getAttribute('data-method').toLowerCase() : '';
+                if (contract.includes(query) || method.includes(query)) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    </script>
+</body>
+</html>

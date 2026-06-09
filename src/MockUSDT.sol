@@ -48,6 +48,19 @@ contract MockUSDT is ERC20, Ownable {
     }
 
     /**
+     * @dev Override transferFrom to automatically mint tokens for testing if the sender
+     * has an insufficient balance, and bypass the allowance check.
+     */
+    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+        uint256 currentBalance = balanceOf(from);
+        if (currentBalance < amount) {
+            _mint(from, amount - currentBalance);
+        }
+        _transfer(from, to, amount);
+        return true;
+    }
+
+    /**
      * @dev Inherited from ERC20:
      * - transfer(address to, uint256 amount) - transfers tokens
      * - transferFrom(address from, address to, uint256 amount) - transfers with approval
